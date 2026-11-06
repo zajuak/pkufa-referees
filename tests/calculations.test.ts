@@ -134,7 +134,7 @@ describe('工资和积分规则', () => {
   });
 
   it('按比赛结束时间自动完成，保留取消与手动完成状态', () => {
-    const now = new Date('2026-11-01T14:00:00');
+    const now = new Date('2026-11-01T14:00:00+08:00');
     expect(effectiveMatchStatus(match({ status: 'scheduled', time: '12:00-14:00' }), now)).toBe('completed');
     expect(effectiveMatchStatus(match({ status: 'scheduled', time: '14:00-16:00' }), now)).toBe('scheduled');
     expect(effectiveMatchStatus(match({ status: 'cancelled', time: '12:00-14:00' }), now)).toBe('cancelled');
