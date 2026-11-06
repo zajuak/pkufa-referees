@@ -1,0 +1,12 @@
+{
+  "name": "pkufa-referees-api",
+  "account_id": "1df7783c888de0836cefdbb00dbcd147",
+  "main": "../api-dist/worker.mjs",
+  "compatibility_date": "2026-11-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "d1_databases": [{ "binding": "DB", "database_name": "pkufa-referees", "database_id": "830eec70-6053-49a0-8860-8e3e060bfa60", "migrations_dir": "../drizzle" }],
+  "vars": { "ALLOWED_ORIGIN": "https://zajuak.github.io" },
+  "observability": { "enabled": true }
+}
