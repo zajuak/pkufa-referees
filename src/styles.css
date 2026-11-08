@@ -128,8 +128,8 @@ select { padding: 8px 28px 8px 10px; }
 .assignment-versus > span { margin: 0 7px; color: #b4acaf; font-size: 9px; font-weight: 700; }
 .assignment-team { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 0; }
 .jersey-color { display: inline-block; flex: 0 0 auto; width: 13px; height: 13px; border: 1px solid rgb(0 0 0 / 20%); border-radius: 3px; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 18%); }
-.assignment-official { display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.assignment-official.pending { color: #b18034; font-weight: 500; }
+.assignment-official { display: inline-flex; align-items: center; justify-content: center; gap: 5px; max-width: 100%; font-size: 14px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
+.assignment-official.pending { color: #b18034; font-size: 12px; font-weight: 500; }
 .assignment-official small { padding: 1px 4px; color: #94651f; border-radius: 3px; background: var(--amber-soft); font-size: 7px; font-weight: 500; }
 .assignment-table .channel-badge, .assignment-table .status-badge { font-size: 10px; }
 .assignment-note { display: block; max-width: 150px; margin: 6px auto 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
@@ -610,3 +610,5 @@ table { width: 100%; border-collapse: collapse; }
 .assignment-table.with-additional{min-width:1100px}
 @media(max-width:760px){.assignment-table.with-additional{min-width:0}.assignment-table.with-additional td:nth-child(n),.assignment-table.with-additional th:nth-child(n){width:auto!important}}
 .auto-week-note{font-size:11px;color:var(--muted);font-weight:400;line-height:1.5}
+
+@media(max-width:1100px){.assignment-table .assignment-official-cell::before{flex:1;min-width:0}.assignment-table .assignment-official-cell .assignment-official{flex-shrink:0;max-width:65%}}

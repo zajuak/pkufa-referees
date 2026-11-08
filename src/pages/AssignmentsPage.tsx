@@ -88,7 +88,7 @@ export default function AssignmentsPage() {
                 const columns = [baseRoles[0], baseRoles[1], baseRoles[2], ...(showAdditional ? (match.channel === 'eleven' && usesAdditionalAssistants(match) ? additionalAssistantRoles : [undefined, undefined]) : []), baseRoles[3]];
                 const role = columns[column];
                 const official = role ? match.officials.find((item) => item.role === role) : undefined;
-                return <td key={column} data-label={label}>{role && status !== 'cancelled' ? <span className={official?.name ? 'assignment-official' : 'assignment-official pending'}>{official?.name || '待选派'}{official?.substitute && <small>临替</small>}</span> : '—'}</td>;
+                return <td className="assignment-official-cell" key={column} data-label={label}>{role && status !== 'cancelled' ? <span className={official?.name ? 'assignment-official' : 'assignment-official pending'}>{official?.name || '待选派'}{official?.substitute && <small>临替</small>}</span> : '—'}</td>;
               })}
               <td data-label="状态 / 备注"><div className="assignment-status"><StatusBadge status={status} />{match.note && !match.note.includes('比赛取消') && <small className="assignment-note">{match.note.replace(/\s/g, '')}</small>}</div></td>
             </tr>;
