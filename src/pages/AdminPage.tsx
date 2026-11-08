@@ -7,7 +7,6 @@ import type { Adjustment, Channel, CompetitionEvent, Level, Match, RuleBlock, Ru
 import { ChannelBadge, PageHeader, StatusBadge } from '../components/ui';
 import AdminMatchForm from '../components/AdminMatchForm';
 import OverviewPage from './OverviewPage';
-import QueryAccountManager from '../components/QueryAccountManager';
 import OperationsManager from '../components/OperationsManager';
 import AssignmentUpload from '../components/AssignmentUpload';
 import { defaultRules } from './RulesPage';
@@ -45,12 +44,12 @@ export default function AdminPage() {
 
 function AdminWorkspace() {
   const { data } = useData();
-  const [tab, setTab] = useState<'matches' | 'adjustments' | 'wages' | 'referees' | 'rules' | 'operations' | 'overview' | 'accounts'>('matches');
+  const [tab, setTab] = useState<'matches' | 'adjustments' | 'wages' | 'referees' | 'rules' | 'operations' | 'overview'>('matches');
   const completed = data!.matches.filter((match) => effectiveMatchStatus(match) === 'completed').length;
   return (
     <>
       <div className="admin-summary"><span><strong>{data!.matches.length}</strong> 场赛程</span><span><strong>{completed}</strong> 场已结算</span><span><strong>{data!.adjustments.length}</strong> 条奖惩</span><p>保存后，前台积分与工资会自动重算。</p><button className="button secondary season-export-button" onClick={() => downloadSeasonWorkbook(data!)}><Download size={16} />导出当前赛季积分工资表</button></div>
-      <div className="admin-tabs" role="group" aria-label="后台管理功能"><button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}><ShieldCheck size={18} />工作总览</button><button className={tab === 'matches' ? 'active' : ''} onClick={() => setTab('matches')}><CalendarPlus size={18} />赛程与选派</button><button className={tab === 'adjustments' ? 'active' : ''} onClick={() => setTab('adjustments')}><Settings2 size={18} />奖惩登记</button><button className={tab === 'wages' ? 'active' : ''} onClick={() => setTab('wages')}><WalletCards size={18} />工资修改</button><button className={tab === 'referees' ? 'active' : ''} onClick={() => setTab('referees')}><UsersRound size={18} />裁判员档案</button><button className={tab === 'rules' ? 'active' : ''} onClick={() => setTab('rules')}><BookOpen size={18} />管理办法</button><button className={tab === 'operations' ? 'active' : ''} onClick={() => setTab('operations')}><ShieldCheck size={18} />请假与备份</button><button className={tab === 'accounts' ? 'active' : ''} onClick={() => setTab('accounts')}><KeyRound size={18} />查询账号</button></div>
+      <div className="admin-tabs" role="group" aria-label="后台管理功能"><button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}><ShieldCheck size={18} />工作总览</button><button className={tab === 'matches' ? 'active' : ''} onClick={() => setTab('matches')}><CalendarPlus size={18} />赛程与选派</button><button className={tab === 'adjustments' ? 'active' : ''} onClick={() => setTab('adjustments')}><Settings2 size={18} />奖惩登记</button><button className={tab === 'wages' ? 'active' : ''} onClick={() => setTab('wages')}><WalletCards size={18} />工资修改</button><button className={tab === 'referees' ? 'active' : ''} onClick={() => setTab('referees')}><UsersRound size={18} />裁判员档案</button><button className={tab === 'rules' ? 'active' : ''} onClick={() => setTab('rules')}><BookOpen size={18} />管理办法</button><button className={tab === 'operations' ? 'active' : ''} onClick={() => setTab('operations')}><ShieldCheck size={18} />请假与备份</button></div>
       {tab === 'matches' && <MatchManager />}
       {tab === 'adjustments' && <AdjustmentManager />}
       {tab === 'wages' && <WageManager />}
@@ -58,7 +57,6 @@ function AdminWorkspace() {
       {tab === 'rules' && <RulesManager />}
       {tab === 'operations' && <OperationsManager />}
       {tab === 'overview' && <OverviewPage />}
-      {tab === 'accounts' && <QueryAccountManager />}
     </>
   );
 }

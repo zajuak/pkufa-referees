@@ -25,6 +25,21 @@ describe('公开赛程与裁判个人查询权限', () => {
     expect(JSON.stringify(result)).not.toContain('9876');
     expect(readableStore(store, { authenticated: true }).referees).toHaveLength(2);
   });
+  it('开放查询后无需登录即可查询全部积分工资，仍不公开请假和原表位置', () => {
+    const source = structuredClone(store);
+    source.referees[0].channels.eleven!.source = { file: 'private-payroll.xlsx', row: 2 };
+    for (const auth of [{ authenticated: false, publicQueries: true }, { authenticated: false, role: 'referee', refereeId: 'r1', publicQueries: true }]) {
+      const result = readableStore(source, auth);
+      expect(result.referees.map((r: { id: string }) => r.id)).toEqual(['r1', 'r2']);
+      expect(result.referees[1].channels.eleven.previousWage).toBe(9876);
+      expect(result.adjustments).toHaveLength(1);
+      expect(result.access.role).toBe('public');
+      expect(result.unavailability).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain('private-payroll.xlsx');
+      expect(result.meta.sourceFiles).toEqual([]);
+    }
+    expect(source.referees[0].channels.eleven!.source?.file).toBe('private-payroll.xlsx');
+  });
   it('密码哈希、签名防篡改与过期检查', async () => {
     const hash = await passwordHash('correct-password');
     expect(hash).not.toContain('correct-password');

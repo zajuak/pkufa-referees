@@ -19,7 +19,7 @@ export default function RefereesPage() {
 
   return (
     <div className="page referees-page">
-      <PageHeader eyebrow="REFEREE DIRECTORY" title="裁判员查询" description={data!.access?.role === 'referee' ? '仅显示你的个人积分和工资，点击姓名查看执裁明细。' : `查询 ${CURRENT_SEASON} 本赛季分渠道积分与工资，点击进入个人详情。`} />
+      <PageHeader eyebrow="REFEREE DIRECTORY" title="裁判员查询" description={`无需登录，按姓名查询 ${CURRENT_SEASON} 本赛季积分与工资，点击姓名查看明细。`} />
       <section className="directory-panel">
         <div className="directory-tools">
           <label className="search-field"><Search size={19} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入裁判员姓名…" aria-label="搜索裁判员姓名" />{query && <button onClick={() => setQuery('')} aria-label="清空搜索">×</button>}</label>

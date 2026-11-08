@@ -22,6 +22,7 @@ app.use(async (req, res, next) => {
     });
     const response = await handleApi(request, repository, {
       authenticated: Boolean(token && (sessions.get(token) || 0) > Date.now()), development: true,
+      publicQueries: process.env.PUBLIC_QUERIES !== 'false',
       login(input) {
         if (typeof input !== 'string') return null;
         const left = Buffer.from(input), right = Buffer.from(password);

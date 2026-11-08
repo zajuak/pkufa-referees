@@ -19,6 +19,7 @@ export default {
       else {
         const repository = d1Repository(env.DB, seed);
         const auth = await requestAuth(request, env);
+        auth.publicQueries = env.PUBLIC_QUERIES === 'true';
         response = await authEndpoint(request, env, repository, auth);
         if (!response) {
           // Origin is checked above. Authentication is a bearer token, not a cross-site cookie.

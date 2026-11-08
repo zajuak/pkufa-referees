@@ -1,16 +1,19 @@
-// Only schedule and published rules are anonymous; personal financial data is filtered server-side.
+// Public querying is a deployment switch; legacy personal-query authentication remains available.
 export function readableStore(store, auth) {
-  const role = auth.authenticated ? 'admin' : auth.role === 'referee' ? 'referee' : 'public';
+  const role = auth.authenticated ? 'admin' : auth.publicQueries ? 'public' : auth.role === 'referee' ? 'referee' : 'public';
   if (role === 'admin') return { ...store, access: { role } };
-  const result = {
+  const financialQueries = auth.publicQueries || role === 'referee';
+  const referees = financialQueries ? store.referees.filter((r) => auth.publicQueries || r.id === auth.refereeId).map((r) => ({
+    id: r.id, name: r.name,
+    channels: Object.fromEntries(Object.entries(r.channels).map(([channel, stats]) => [channel, Object.fromEntries(['basePoints', 'baseLevel', 'levelOverride', 'previousWage', 'historical'].filter((key) => stats[key] !== undefined).map((key) => [key, stats[key]]))])),
+  })) : [];
+  return {
     version: store.version, revision: store.revision || 0, updatedAt: store.updatedAt,
     meta: { association: store.meta.association, season: store.meta.season, rulesVersion: store.meta.rulesVersion, importedAt: store.meta.importedAt, sourceFiles: [], counts: store.meta.counts },
-    matches: store.matches.map((m) => Object.fromEntries(['id', 'season', 'week', 'channel', 'event', 'competition', 'date', 'time', 'venue', 'group', 'home', 'away', 'homeColor', 'awayColor', 'stage', 'division', 'status', 'note', 'bonuses', 'officials'].map((key) => [key, key === 'officials' ? m.officials.map((o) => ({ role: o.role, refereeId: o.refereeId, name: o.name, substitute: o.substitute })) : m[key]]))), referees: [], adjustments: [], rules: store.rules, wageStandards: store.wageStandards,
+    matches: store.matches.map((m) => Object.fromEntries(['id', 'season', 'week', 'channel', 'event', 'competition', 'date', 'time', 'venue', 'group', 'home', 'away', 'homeColor', 'awayColor', 'stage', 'division', 'status', 'note', 'bonuses', 'officials'].map((key) => [key, key === 'officials' ? m.officials.map((o) => ({ role: o.role, refereeId: o.refereeId, name: o.name, substitute: o.substitute })) : m[key]]))),
+    referees,
+    adjustments: financialQueries ? store.adjustments.filter((a) => auth.publicQueries || a.refereeId === auth.refereeId) : [],
+    rules: store.rules, wageStandards: store.wageStandards,
     access: { role, ...(role === 'referee' ? { refereeId: auth.refereeId } : {}) },
   };
-  if (role === 'referee') {
-    result.referees = store.referees.filter((r) => r.id === auth.refereeId);
-    result.adjustments = store.adjustments.filter((a) => a.refereeId === auth.refereeId);
-  }
-  return result;
 }

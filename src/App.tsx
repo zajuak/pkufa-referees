@@ -1,7 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AlertCircle, LoaderCircle } from 'lucide-react';
 import { useData } from './hooks/useData';
-import RefereeAccess from './components/RefereeAccess';
 import AppShell from './components/AppShell';
 import AssignmentsPage from './pages/AssignmentsPage';
 import RefereesPage from './pages/RefereesPage';
@@ -18,8 +17,8 @@ export default function App() {
       <Route element={<AppShell />}>
         <Route index element={<Navigate to="/assignments" replace />} />
         <Route path="/assignments" element={<AssignmentsPage />} />
-        <Route path="/referees" element={<RefereeAccess><RefereesPage /></RefereeAccess>} />
-        <Route path="/referees/:id" element={<RefereeAccess><RefereeDetailPage /></RefereeAccess>} />
+        <Route path="/referees" element={<RefereesPage />} />
+        <Route path="/referees/:id" element={<RefereeDetailPage />} />
         <Route path="/rules" element={<RulesPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="*" element={<Navigate to="/assignments" replace />} />
