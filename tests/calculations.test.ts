@@ -23,7 +23,7 @@ describe('工资和积分规则', () => {
   });
 
   it('计算半决赛积分与早场补贴', () => {
-    const result = calculateOfficial(match({ stage: 'semifinal', bonuses: ['early'] }), { role: 'assistant1', refereeId: 'r1', name: '测试裁判' }, 'B');
+    const result = calculateOfficial(match({ stage: 'semifinal', time: '09:00-11:00', bonuses: ['early'] }), { role: 'assistant1', refereeId: 'r1', name: '测试裁判' }, 'B');
     expect(result.points).toBe(3);
     expect(result.bonusWage).toBe(20);
     expect(result.wage).toBe(85);

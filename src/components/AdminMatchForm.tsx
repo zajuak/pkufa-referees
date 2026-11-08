@@ -4,12 +4,11 @@ import { api, useData } from '../hooks/useData';
 import { availableSeasons, CURRENT_SEASON, roleName } from '../domain/calculations';
 import { defaultCompetition, eventsForChannel, getMatchEvent } from '../domain/competitions';
 import { assignmentIssues, matchRoles, requiredRoles, usesAdditionalAssistants } from '../domain/scheduling';
+import { automaticTimeBonuses, matchBonuses, timeBonusKinds, timeBonusLabels } from '../domain/time-bonuses';
 import { allowedStages, stageOptions, stageLabel } from '../domain/stages';
 import { matchWeek } from '../domain/weeks';
 import { eventTeams, teamColor } from '../domain/teams';
-import type { Bonus, Channel, CompetitionEvent, Match } from '../domain/types';
-
-const bonusLabels: Record<Bonus, string> = { early: '早场', late: '晚场', weekday: '周中', badWeather: '恶劣天气' };
+import type { Channel, CompetitionEvent, Match } from '../domain/types';
 
 function emptyMatch(): Match {
   return {
@@ -33,6 +32,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
   const [saving, setSaving] = useState(false);
   const [officialQueries, setOfficialQueries] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
+  const automaticBonuses = automaticTimeBonuses(form);
   const calculatedWeek = matchWeek(form, data!.matches, data!.meta.season);
   const issues = assignmentIssues(form, data!.matches, data!.unavailability);
   const seasons = availableSeasons(data!.matches, data!.adjustments);
@@ -60,7 +60,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
   const save = async () => {
     setSaving(true); setError('');
     try {
-      await api(form.id ? `/api/matches/${form.id}` : '/api/matches', { method: form.id ? 'PUT' : 'POST', body: JSON.stringify({ ...form, week: calculatedWeek }) });
+      await api(form.id ? `/api/matches/${form.id}` : '/api/matches', { method: form.id ? 'PUT' : 'POST', body: JSON.stringify({ ...form, week: calculatedWeek, bonuses: matchBonuses(form) }) });
       await refresh(); onClose();
     } catch (reason) { setError(reason instanceof Error ? reason.message : '保存失败'); }
     finally { setSaving(false); }
@@ -117,7 +117,8 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
           {official.refereeId && <label className="substitute-check"><input type="checkbox" checked={official.substitute || false} onChange={(event) => setForm((current) => ({ ...current, officials: current.officials.map((item, i) => i === index ? { ...item, substitute: event.target.checked } : item) }))} />临时替补 +10 元</label>}
         </div>;
       })}</fieldset>}
-      <fieldset className="bonus-checks"><legend>补贴标记</legend>{(Object.keys(bonusLabels) as Bonus[]).map((bonus) => <label key={bonus}><input type="checkbox" checked={form.bonuses.includes(bonus)} onChange={(event) => update('bonuses', event.target.checked ? [...form.bonuses, bonus] : form.bonuses.filter((item) => item !== bonus))} />{bonusLabels[bonus]}</label>)}</fieldset>
+      <fieldset className="bonus-checks"><legend>时间补贴（自动判定）</legend>{timeBonusKinds.map((bonus) => <label key={bonus}><input type="checkbox" checked={automaticBonuses.includes(bonus)} disabled readOnly />{timeBonusLabels[bonus]}</label>)}<p className="time-bonus-help">10:00及以前开赛为早场，20:00及以后为晚场；非周六、周日为非常规时间。按比赛日期及开赛时间自动更新，命中多项仍只计一次 10 元时间补贴。</p></fieldset>
+      <fieldset className="bonus-checks"><legend>其他补贴</legend><label><input type="checkbox" checked={form.bonuses.includes('badWeather')} onChange={(e) => update('bonuses', e.target.checked ? [...form.bonuses, 'badWeather'] : form.bonuses.filter((bonus) => bonus !== 'badWeather'))} />恶劣天气</label></fieldset>
       <label>备注<textarea rows={2} value={form.note} onChange={(event) => update('note', event.target.value)} /></label>
       {issues.length > 0 && <div className="form-error" role="alert"><strong>请先处理选派冲突</strong>{issues.map((issue) => <p key={issue}>{issue}</p>)}</div>}{error && <p className="form-error" role="alert">{error}</p>}
       <div className="form-actions">{form.id && <button type="button" className="button danger-ghost" onClick={() => void remove()}><Trash2 size={16} />删除</button>}<button type="button" className="button secondary" onClick={onClose}>取消</button><button className="button primary" disabled={saving || issues.length > 0}><Save size={16} />{saving ? '保存中…' : '保存比赛'}</button></div>

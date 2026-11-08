@@ -1,4 +1,5 @@
 import type { Channel, Level, Match, MatchStatus, Official, OfficialCalculation, Referee, Adjustment, WageStandards } from './types';
+import { automaticTimeBonuses, matchBonuses, timeBonusLabels } from './time-bonuses';
 import { stageLabel } from './stages';
 import { isAssistantRole, matchInterval } from './scheduling';
 import { competitionEvents, getMatchEvent } from './competitions';
@@ -55,22 +56,24 @@ export function calculateOfficial(match: Match, official: Official, level: Level
     : levelWages[official.role === 'third' ? 1 : 0];
   if (match.channel === 'eleven' && match.competition.includes('北大杯') && match.division === '甲') baseWage *= 1.1;
 
+  const bonuses = matchBonuses(match);
   let bonusWage = 0;
   const isFourth = official.role === 'fourth' || official.role === 'third';
   if (match.stage === 'semifinal') bonusWage += isFourth ? 5 : 10;
   if (match.stage === 'final') bonusWage += isFourth ? 10 : 20;
-  if (match.bonuses.some((bonus) => ['early', 'late', 'weekday'].includes(bonus))) bonusWage += 10;
-  if (match.bonuses.includes('badWeather')) bonusWage += 10;
+  if (bonuses.some((bonus) => ['early', 'late', 'weekday'].includes(bonus))) bonusWage += 10;
+  if (bonuses.includes('badWeather')) bonusWage += 10;
   if (official.substitute) bonusWage += 10;
   return { points, baseWage, bonusWage, wage: baseWage + bonusWage };
 }
 
 export function officialBonusDescription(match: Match, official: Official) {
   const descriptions: string[] = [];
+  const bonuses = matchBonuses(match);
   if (match.stage === 'semifinal') descriptions.push('半决赛奖励');
   if (match.stage === 'final') descriptions.push('决赛奖励');
-  if (match.bonuses.some((bonus) => ['early', 'late', 'weekday'].includes(bonus))) descriptions.push('特殊时间补贴');
-  if (match.bonuses.includes('badWeather')) descriptions.push('恶劣天气补贴');
+  if (automaticTimeBonuses(match).length) descriptions.push(`特殊时间补贴（${automaticTimeBonuses(match).map((bonus) => timeBonusLabels[bonus]).join('、')}）`);
+  if (bonuses.includes('badWeather')) descriptions.push('恶劣天气补贴');
   if (official.substitute) descriptions.push('临时替补补贴');
   return descriptions.join('、');
 }

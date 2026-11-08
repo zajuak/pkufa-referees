@@ -13,7 +13,7 @@ import { validateSnapshot } from '../server/validation.mjs';
 import { importAssignmentWorkbook, stageFor } from '../server/assignment-import.mjs';
 import { strToU8, zipSync } from 'fflate';
 
-const match: Match = { id: 'm1', season: '2026–27', week: 1, channel: 'eleven', event: 'freshmen-cup', competition: '新生杯', date: '2026-10-01', time: '12:00-14:00', venue: '北场', group: '', home: '测试甲', away: '测试乙', stage: 'group', division: null, status: 'completed', note: '', bonuses: [], officials: [] };
+const match: Match = { id: 'm1', season: '2026–27', week: 1, channel: 'eleven', event: 'freshmen-cup', competition: '新生杯', date: '2026-10-03', time: '12:00-14:00', venue: '北场', group: '', home: '测试甲', away: '测试乙', stage: 'group', division: null, status: 'completed', note: '', bonuses: [], officials: [] };
 const official: Official = { role: 'additionalAssistant1', refereeId: 'r1', name: '测试裁判' };
 function seed(): DataStore { return { version: 1, revision: 0, meta: { association: '测试', season: '2026–27', rulesVersion: '测试', importedAt: '2026-11-01T00:00:00Z', sourceFiles: [], counts: { elevenMatches: 0, fiveMatches: 0, cancelledMatches: 0 } }, referees: [{ id: 'r1', name: '测试裁判', channels: { eleven: { basePoints: 0, baseLevel: 'C', previousWage: 0, historical: { pointsEarned: 0, roleCounts: {}, bonusWage: 0, deductedWage: 0, bonusPoints: 0, deductedPoints: 0 } } } }], matches: [], adjustments: [] }; }
 
@@ -143,7 +143,7 @@ describe('持久化、接口权限、备份及导入', () => {
     const original = { ...match, id: 'existing', status: 'scheduled' as const, group: 'A', additionalAssistants: true, officials: [official, { role: 'additionalAssistant2' as const, refereeId: null, name: '' }] };
     data.matches = [original];
     const row = (values: string[], n: number) => `<row r="${n}">${values.map((v, i) => `<c r="${String.fromCharCode(65+i)}${n}" t="inlineStr"><is><t>${v}</t></is></c>`).join('')}</row>`;
-    const workbook = zipSync({ 'xl/workbook.xml': strToU8('<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="测试" sheetId="1" r:id="rId1"/></sheets></workbook>'), 'xl/_rels/workbook.xml.rels': strToU8('<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'), 'xl/worksheets/sheet1.xml': strToU8(`<worksheet><sheetData>${row(['日期','时间','场地','组别','主队','客队','主裁','助理1','助理2','四官'],1)}${row(['10.1','12:00-14:00','北场','A','测试甲','测试乙','','','',''],2)}</sheetData></worksheet>`) });
+    const workbook = zipSync({ 'xl/workbook.xml': strToU8('<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="测试" sheetId="1" r:id="rId1"/></sheets></workbook>'), 'xl/_rels/workbook.xml.rels': strToU8('<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'), 'xl/worksheets/sheet1.xml': strToU8(`<worksheet><sheetData>${row(['日期','时间','场地','组别','主队','客队','主裁','助理1','助理2','四官'],1)}${row(['10.3','12:00-14:00','北场','A','测试甲','测试乙','','','',''],2)}</sheetData></worksheet>`) });
     importAssignmentWorkbook(data, workbook, '2026–27');
     expect(data.matches).toHaveLength(1);
     expect(data.matches[0].additionalAssistants).toBe(true);

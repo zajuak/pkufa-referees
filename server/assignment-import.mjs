@@ -1,3 +1,4 @@
+import { recalculateMatchBonuses } from '../src/domain/time-bonuses.ts';
 import { recalculateMatchWeeks } from '../src/domain/weeks.ts';
 import { additionalAssistantRoles, usesAdditionalAssistants } from '../src/domain/scheduling.ts';
 import { randomUUID } from 'node:crypto';
@@ -51,9 +52,6 @@ function normalizeTime(value) {
 
 function bonusesFor(note) {
   const bonuses = [];
-  if (note.includes('早场')) bonuses.push('early');
-  if (note.includes('晚场')) bonuses.push('late');
-  if (note.includes('周中')) bonuses.push('weekday');
   if (note.includes('恶劣天气') || note.includes('天气补贴')) bonuses.push('badWeather');
   return bonuses;
 }
@@ -202,6 +200,7 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
     }
   }
   recalculateMatchWeeks(store.matches, store.meta.season);
+  recalculateMatchBonuses(store.matches);
   store.meta.counts = {
     elevenMatches: store.matches.filter((match) => match.channel === 'eleven').length,
     fiveMatches: store.matches.filter((match) => match.channel === 'five').length,

@@ -13,7 +13,7 @@
     "db:generate": "drizzle-kit generate",
     "build:pages": "tsc -b && vite build --outDir pages-dist",
     "build:api": "node scripts/build-api.mjs",
-    "test:public": "vitest run tests/calculations.test.ts tests/season-export.test.ts tests/access.test.ts tests/teams-officiating.test.ts tests/weeks.test.ts"
+    "test:public": "vitest run tests/calculations.test.ts tests/season-export.test.ts tests/access.test.ts tests/teams-officiating.test.ts tests/weeks.test.ts tests/time-bonuses.test.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.4",

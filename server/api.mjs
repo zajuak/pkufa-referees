@@ -1,3 +1,4 @@
+import { recalculateMatchBonuses } from '../src/domain/time-bonuses.ts';
 import { allowedStages } from '../src/domain/stages.ts';
 import { recalculateMatchWeeks } from '../src/domain/weeks.ts';
 import { readableStore } from './access.mjs';
@@ -17,6 +18,7 @@ export async function handleApi(request, repository, auth) {
   const before = await repository.load();
   let store = structuredClone(before);
   recalculateMatchWeeks(store.matches, store.meta.season);
+  recalculateMatchBonuses(store.matches);
   const app = new Router(request);
   const requireAdmin = (_req, res, next) => auth.authenticated ? next() : res.status(401).json({ error: '请先登录管理员账号' });
   const persist = async () => {
@@ -24,6 +26,7 @@ export async function handleApi(request, repository, auth) {
     if (supplied === null) throw Object.assign(new Error('请刷新页面后再保存'), { status: 428 });
     if (Number(supplied) !== (before.revision || 0)) throw Object.assign(new Error('数据已被其他窗口更新，请刷新后重新编辑；本次修改尚未保存'), { status: 409 });
     recalculateMatchWeeks(store.matches, store.meta.season);
+    recalculateMatchBonuses(store.matches);
     store.revision = (before.revision || 0) + 1;
     store.updatedAt = new Date().toISOString();
     await repository.save(store, before.revision || 0, `${request.method} ${new URL(request.url).pathname}`);

@@ -5,6 +5,7 @@ import { useData } from '../hooks/useData';
 import { ChannelBadge, EmptyState, PageHeader, StatusBadge } from '../components/ui';
 import { availableSeasons, CURRENT_SEASON, effectiveMatchStatus, formatDate, stageName } from '../domain/calculations';
 import { competitionEvents, getMatchEvent } from '../domain/competitions';
+import { automaticTimeBonuses, timeBonusLabels } from '../domain/time-bonuses';
 import { matchStageLabel } from '../domain/stages';
 import { seasonWeekRange } from '../domain/weeks';
 import { exportAssignments, exportCalendar } from '../domain/downloads';
@@ -90,7 +91,7 @@ export default function AssignmentsPage() {
                 const official = role ? match.officials.find((item) => item.role === role) : undefined;
                 return <td className="assignment-official-cell" key={column} data-label={label}>{role && status !== 'cancelled' ? <span className={official?.name ? 'assignment-official' : 'assignment-official pending'}>{official?.name || '待选派'}{official?.substitute && <small>临替</small>}</span> : '—'}</td>;
               })}
-              <td data-label="状态 / 备注"><div className="assignment-status"><StatusBadge status={status} />{match.note && !match.note.includes('比赛取消') && <small className="assignment-note">{match.note.replace(/\s/g, '')}</small>}</div></td>
+              <td data-label="状态 / 备注"><div className="assignment-status"><StatusBadge status={status} />{status !== 'cancelled' && automaticTimeBonuses(match).length > 0 && <small className="auto-time-labels">{automaticTimeBonuses(match).map((bonus) => timeBonusLabels[bonus]).join(' · ')}</small>}{match.note && !match.note.includes('比赛取消') && <small className="assignment-note">{match.note.replace(/\s/g, '')}</small>}</div></td>
             </tr>;
           })}</tbody>
         </table>

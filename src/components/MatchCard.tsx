@@ -1,14 +1,16 @@
 import { Clock3, MapPin, CloudRain, Sunrise, Sunset, CalendarRange } from 'lucide-react';
 import type { Match } from '../domain/types';
+import { matchBonuses } from '../domain/time-bonuses';
 import { matchStageLabel } from '../domain/stages';
 import { effectiveMatchStatus, roleName, stageName } from '../domain/calculations';
 import { ChannelBadge, StatusBadge } from './ui';
 
 const bonusIcons = { early: Sunrise, late: Sunset, weekday: CalendarRange, badWeather: CloudRain };
-const bonusNames = { early: '早场补贴', late: '晚场补贴', weekday: '周中补贴', badWeather: '天气补贴' };
+const bonusNames = { early: '早场补贴', late: '晚场补贴', weekday: '非常规时间补贴', badWeather: '天气补贴' };
 
 export default function MatchCard({ match }: { match: Match }) {
   const status = effectiveMatchStatus(match);
+  const bonuses = matchBonuses(match);
   return (
     <article className={`match-card ${status}`}>
       <div className="match-topline">
@@ -33,9 +35,9 @@ export default function MatchCard({ match }: { match: Match }) {
           </div>
         ))}
       </div>}
-      {(match.bonuses.length > 0 || match.note) && (
+      {(bonuses.length > 0 || match.note) && (
         <div className="match-footer">
-          <div className="bonus-list">{match.bonuses.map((bonus) => {
+          <div className="bonus-list">{bonuses.map((bonus) => {
             const Icon = bonusIcons[bonus];
             return <span className="bonus-tag" key={bonus}><Icon size={13} />{bonusNames[bonus]}</span>;
           })}</div>
