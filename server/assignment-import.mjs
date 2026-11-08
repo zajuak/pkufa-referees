@@ -1,3 +1,4 @@
+import { additionalAssistantRoles, usesAdditionalAssistants } from '../src/domain/scheduling.ts';
 import { randomUUID } from 'node:crypto';
 import { parseWorkbook } from './xlsx.mjs';
 
@@ -90,6 +91,7 @@ function stageFor(group) {
   if (group.includes('半决赛')) return 'semifinal';
   if (group.includes('季军')) return 'third';
   if (group.includes('决赛')) return 'final';
+  if (group.includes('淘汰')) return 'knockout';
   return 'group';
 }
 
@@ -100,7 +102,7 @@ function parseSheet(sheet, season, store, context, selectedEvent) {
     const row = sheet.getRow(rowNumber);
     if (cellText(row, 1) !== '日期' || cellText(row, 2) !== '时间') continue;
     if (cellText(row, 3) === '场地' && cellText(row, 4) === '组别') elevenHeader = rowNumber;
-    if (row.values.some((value) => text(value) === '主裁')) fiveHeaders.push(rowNumber);
+    else if (row.values.some((value) => text(value) === '主裁')) fiveHeaders.push(rowNumber);
   }
   const matches = [];
   if (elevenHeader) {
@@ -115,7 +117,7 @@ function parseSheet(sheet, season, store, context, selectedEvent) {
       matches.push({
         channel: 'eleven', event, competition: eventCompetitions[event] || sheet.name, date: normalizeDate(row.getCell(1).value, season), time: normalizeTime(row.getCell(2).value),
         venue: cellText(row, 3), group: cellText(row, 4), home: cellText(row, 5), away: cellText(row, 6),
-        homeColor: row.getCell(5).color, awayColor: row.getCell(6).color, stage: 'group', division: null,
+        homeColor: row.getCell(5).color, awayColor: row.getCell(6).color, stage: stageFor(cellText(row, 4)), division: null,
         status: cancelled ? 'cancelled' : 'scheduled', note, bonuses: bonusesFor(note),
         officials: cancelled ? [] : roles.map(([role, column]) => makeOfficial(store, role, row.getCell(column).value, 'eleven', context)),
       });
@@ -176,8 +178,13 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
           const previous = existing.officials.find((item) => item.role === official.role);
           return { ...official, substitute: previous?.substitute || false };
         });
+        const additionalAssistants = usesAdditionalAssistants(existing);
+        if (additionalAssistants && parsed.status !== 'cancelled') for (const role of additionalAssistantRoles) {
+          officials.push(existing.officials.find((o) => o.role === role) || { role, refereeId: null, name: '' });
+        }
         Object.assign(existing, parsed, {
-          id: existing.id, season: existing.season || season, week: existing.week, officials,
+          id: existing.id, season: existing.season || season, week: existing.week, officials, additionalAssistants,
+          stage: parsed.stage === 'group' ? existing.stage : parsed.stage,
           status: parsed.status === 'cancelled' ? 'cancelled' : existing.status === 'completed' ? 'completed' : 'scheduled',
         });
         updated += 1;

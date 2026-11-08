@@ -1,7 +1,11 @@
-import type { Match, Unavailability } from './types.ts';
+import type { Match, Role, Unavailability } from './types.ts';
 
-export const requiredRoles = (channel: Match['channel']) => channel === 'eleven'
-  ? ['referee', 'assistant1', 'assistant2', 'fourth'] : ['first', 'second', 'third'];
+export const additionalAssistantRoles: Role[] = ['additionalAssistant1', 'additionalAssistant2'];
+export const isAssistantRole = (role: Role) => ['assistant1', 'assistant2', ...additionalAssistantRoles].includes(role);
+export const usesAdditionalAssistants = (match: Pick<Match, 'channel' | 'additionalAssistants' | 'officials'>) => match.channel === 'eleven' && (match.additionalAssistants ?? match.officials.some((o) => additionalAssistantRoles.includes(o.role)));
+export const requiredRoles = (channel: Match['channel'], additional = false): Role[] => channel === 'eleven'
+  ? ['referee', 'assistant1', 'assistant2', ...(additional ? additionalAssistantRoles : []), 'fourth'] : ['first', 'second', 'third'];
+export const matchRoles = (match: Pick<Match, 'channel' | 'additionalAssistants' | 'officials'>) => requiredRoles(match.channel, usesAdditionalAssistants(match));
 
 export function matchInterval(match: Pick<Match, 'date' | 'time'>): [number, number] | null {
   const parts = match.time.replace(/[—–~～]/g, '-').replace(/\s/g, '').match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/);
@@ -35,5 +39,5 @@ export function assignmentIssues(match: Match, matches: Match[], leave: Unavaila
 }
 
 export function vacantRoles(match: Match) {
-  return match.status === 'cancelled' ? [] : requiredRoles(match.channel).filter((role) => !match.officials.some((o) => o.role === role && o.refereeId));
+  return match.status === 'cancelled' ? [] : matchRoles(match).filter((role) => !match.officials.some((o) => o.role === role && o.refereeId));
 }

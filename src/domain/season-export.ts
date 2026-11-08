@@ -26,7 +26,7 @@ export function seasonExportRows(data: DataStore, season = CURRENT_SEASON) {
       && (firstDivision ? match.division === '甲' : match.division !== '甲')
     )).length;
     const roleCounts = ['referee', 'assistant', 'fourth'].flatMap((role) => {
-      const roles = role === 'assistant' ? ['assistant1', 'assistant2'] : [role];
+      const roles = role === 'assistant' ? ['assistant1', 'assistant2', 'additionalAssistant1', 'additionalAssistant2'] : [role];
       return [count(roles, false, true), count(roles, false, false), count(roles, true, true), count(roles, true, false)];
     });
     const rewardWage = wage.adjustments.filter((item) => item.wage > 0).reduce((sum, item) => sum + item.wage, 0);

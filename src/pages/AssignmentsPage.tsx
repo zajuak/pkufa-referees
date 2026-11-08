@@ -6,6 +6,7 @@ import { ChannelBadge, EmptyState, PageHeader, StatusBadge } from '../components
 import { availableSeasons, CURRENT_SEASON, effectiveMatchStatus, formatDate, stageName } from '../domain/calculations';
 import { competitionEvents, getMatchEvent } from '../domain/competitions';
 import { exportAssignments, exportCalendar } from '../domain/downloads';
+import { additionalAssistantRoles, usesAdditionalAssistants } from '../domain/scheduling';
 import type { Channel, Role } from '../domain/types';
 
 const assignmentRoles: Record<Channel, Role[]> = {
@@ -35,6 +36,8 @@ export default function AssignmentsPage() {
     .filter((match) => statusFilter === 'all' || effectiveMatchStatus(match) === statusFilter)
     .filter((match) => `${match.home} ${match.away} ${match.officials.map((o) => o.name).join(' ')}`.includes(query.trim()))
     .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time)), [categoryMatches, week, venue, query, statusFilter]);
+  const showAdditional = filtered.some((match) => match.status !== 'cancelled' && usesAdditionalAssistants(match));
+  const roleLabels = ['主裁判 / 第一裁判', '第一助理 / 第二裁判', '第二助理 / 第三裁判', ...(showAdditional ? ['第一附加助理', '第二附加助理'] : []), '第四官员'];
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(params);
     next.set(key, value);
@@ -67,8 +70,8 @@ export default function AssignmentsPage() {
       </section>
       <div className="schedule-heading"><div><CalendarCheck size={20} /><h2>{week === 'all' ? '全部赛程' : `第 ${week} 周赛程`}</h2></div><span>共 {filtered.length} 场比赛 · 按时间正序</span></div>
       {filtered.length ? <section className="assignment-table-wrap">
-        <table className="assignment-table">
-          <thead><tr><th>日期</th><th>时间</th><th>赛制 / 赛事</th><th>场地</th><th>组别 / 阶段</th><th>对阵</th><th>主裁判 / 第一裁判</th><th>第一助理 / 第二裁判</th><th>第二助理 / 第三裁判</th><th>第四官员</th><th>状态 / 备注</th></tr></thead>
+        <table className={showAdditional ? 'assignment-table with-additional' : 'assignment-table'}>
+          <thead><tr><th>日期</th><th>时间</th><th>赛制 / 赛事</th><th>场地</th><th>组别 / 阶段</th><th>对阵</th>{roleLabels.map((label) => <th key={label}>{label}</th>)}<th>状态 / 备注</th></tr></thead>
           <tbody>{filtered.map((match) => {
             const status = effectiveMatchStatus(match);
             return <tr className={status} key={match.id}>
@@ -78,10 +81,12 @@ export default function AssignmentsPage() {
               <td data-label="场地">{match.venue}</td>
               <td data-label="组别 / 阶段">{match.group || stageName(match.stage)}</td>
               <td data-label="对阵"><div className="assignment-versus">{match.home || match.away ? <><strong className="assignment-team"><JerseyColor side="主队" color={match.homeColor} />{match.home || '待定'}</strong><span>VS</span><strong className="assignment-team"><JerseyColor side="客队" color={match.awayColor} />{match.away || '待定'}</strong></> : <strong>{match.group || stageName(match.stage)}</strong>}</div></td>
-              {[0, 1, 2, 3].map((column) => {
-                const role = assignmentRoles[match.channel][column];
+              {roleLabels.map((label, column) => {
+                const baseRoles = assignmentRoles[match.channel];
+                const columns = [baseRoles[0], baseRoles[1], baseRoles[2], ...(showAdditional ? (match.channel === 'eleven' && usesAdditionalAssistants(match) ? additionalAssistantRoles : [undefined, undefined]) : []), baseRoles[3]];
+                const role = columns[column];
                 const official = role ? match.officials.find((item) => item.role === role) : undefined;
-                return <td key={column} data-label={['主裁判 / 第一裁判', '第一助理 / 第二裁判', '第二助理 / 第三裁判', '第四官员'][column]}>{role && status !== 'cancelled' ? <span className={official?.name ? 'assignment-official' : 'assignment-official pending'}>{official?.name || '待选派'}{official?.substitute && <small>临替</small>}</span> : '—'}</td>;
+                return <td key={column} data-label={label}>{role && status !== 'cancelled' ? <span className={official?.name ? 'assignment-official' : 'assignment-official pending'}>{official?.name || '待选派'}{official?.substitute && <small>临替</small>}</span> : '—'}</td>;
               })}
               <td data-label="状态 / 备注"><div className="assignment-status"><StatusBadge status={status} />{match.note && !match.note.includes('比赛取消') && <small className="assignment-note">{match.note.replace(/\s/g, '')}</small>}</div></td>
             </tr>;

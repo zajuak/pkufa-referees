@@ -2,7 +2,8 @@ import { readableStore } from './access.mjs';
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import { importAssignmentWorkbook } from './assignment-import.mjs';
-import { assignmentIssues, matchInterval } from '../src/domain/scheduling.ts';
+import { additionalAssistantRoles, assignmentIssues, matchInterval } from '../src/domain/scheduling.ts';
+import { normalizeTeamName, teamColor } from '../src/domain/teams.ts';
 import { Router } from './router.mjs';
 import { validateSnapshot } from './validation.mjs';
 
@@ -65,10 +66,14 @@ function validateMatch(input) {
   if (!event) throw new Error('仅支持男足新生杯、男足北大杯和女足北大杯');
   if (eventChannels[event] !== channel) throw new Error('赛事分类与赛制不匹配');
   const competition = eventCompetitions[event];
+  if (input.additionalAssistants !== undefined && typeof input.additionalAssistants !== 'boolean') throw new Error('附加助理裁判设置不正确');
+  const additionalAssistants = Boolean(input.additionalAssistants);
+  if (additionalAssistants && channel !== 'eleven') throw new Error('仅十一人制可以设置附加助理裁判');
   const allowedRoles = channel === 'five'
     ? ['first', 'second', 'third']
-    : ['referee', 'assistant1', 'assistant2', 'fourth'];
+    : ['referee', 'assistant1', 'assistant2', 'fourth', ...(additionalAssistants ? additionalAssistantRoles : [])];
   const officials = Array.isArray(input.officials) ? input.officials : [];
+  if (!additionalAssistants && officials.some((o) => additionalAssistantRoles.includes(o.role))) throw new Error('请先启用两名附加助理裁判');
   const status = ['scheduled', 'completed', 'cancelled'].includes(input.status) ? input.status : 'scheduled';
   const cleanOfficials = status === 'cancelled' ? [] : officials
     .filter((item) => allowedRoles.includes(item.role))
@@ -83,6 +88,9 @@ function validateMatch(input) {
         substitute: Boolean(item.substitute),
       };
     });
+  if (additionalAssistants && status !== 'cancelled') for (const role of additionalAssistantRoles) {
+    if (!cleanOfficials.some((o) => o.role === role)) cleanOfficials.push({ role, refereeId: null, name: '', substitute: false });
+  }
   const stage = ['group', 'knockout', 'semifinal', 'final', 'third'].includes(input.stage) ? input.stage : 'group';
   const bonuses = Array.isArray(input.bonuses)
     ? input.bonuses.filter((item) => ['early', 'late', 'weekday', 'badWeather'].includes(item))
@@ -98,16 +106,17 @@ function validateMatch(input) {
     time: text(input.time, 40),
     venue: text(input.venue, 60) || '未注明',
     group: text(input.group, 40),
-    home: text(input.home, 60),
-    away: text(input.away, 60),
-    homeColor: jerseyColor(input.homeColor),
-    awayColor: jerseyColor(input.awayColor),
+    home: normalizeTeamName(text(input.home, 60)),
+    away: normalizeTeamName(text(input.away, 60)),
+    homeColor: Object.hasOwn(input, 'homeColor') ? jerseyColor(input.homeColor) : teamColor(store, event, text(input.home, 60)),
+    awayColor: Object.hasOwn(input, 'awayColor') ? jerseyColor(input.awayColor) : teamColor(store, event, text(input.away, 60)),
     stage,
     division: ['甲', '乙'].includes(input.division) ? input.division : null,
     status,
     note: text(input.note, 300),
     bonuses: [...new Set(bonuses)],
     officials: cleanOfficials,
+    additionalAssistants,
   };
   if (new Set(cleanOfficials.map((o) => o.role)).size !== cleanOfficials.length) throw new Error('同一岗位不能重复');
   if (status !== 'cancelled' && !matchInterval(result)) throw new Error('比赛时间请填写有效的开始和结束时间，例如 12:00-14:00');
@@ -182,6 +191,31 @@ function validateWageStandards(input) {
 }
 
 app.get('/api/data', (_req, res) => res.json(readableStore(store, auth)));
+
+app.put('/api/teams', requireAdmin, async (req, res, next) => {
+  try {
+    const event = text(req.body?.event, 30);
+    const name = normalizeTeamName(text(req.body?.name, 60));
+    if (!Object.hasOwn(eventChannels, event) || !name) throw new Error('请选择赛事并填写球队名称');
+    const color = jerseyColor(req.body?.color);
+    if (!color) throw new Error('请为球队选择球衣颜色');
+    const team = { event, name, color };
+    const teams = [...(store.teams || [])];
+    const index = teams.findIndex((item) => item.event === event && item.name === name);
+    if (index >= 0) teams[index] = team; else teams.push(team);
+    store.teams = teams;
+    await persist(); res.json(team);
+  } catch (error) { next(error); }
+});
+app.delete('/api/teams', requireAdmin, async (req, res, next) => {
+  try {
+    const event = text(req.query.event, 30), name = normalizeTeamName(text(req.query.name, 60));
+    const teams = store.teams || [];
+    if (!teams.some((team) => team.event === event && team.name === name)) return res.status(404).json({ error: '该球队尚未绑定颜色' });
+    store.teams = teams.filter((team) => team.event !== event || team.name !== name);
+    await persist(); res.status(204).end();
+  } catch (error) { next(error); }
+});
 
 app.put('/api/wage-standards', requireAdmin, async (req, res, next) => {
   try {

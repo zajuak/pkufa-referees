@@ -3,7 +3,7 @@ export type CompetitionEvent = 'freshmen-cup' | 'mens-pku-cup' | 'womens-pku-cup
 export type Level = 'A' | 'B' | 'C' | 'D' | 'E';
 export type MatchStatus = 'scheduled' | 'completed' | 'cancelled';
 export type Stage = 'group' | 'knockout' | 'semifinal' | 'final' | 'third';
-export type Role = 'referee' | 'assistant1' | 'assistant2' | 'fourth' | 'first' | 'second' | 'third';
+export type Role = 'referee' | 'assistant1' | 'assistant2' | 'additionalAssistant1' | 'additionalAssistant2' | 'fourth' | 'first' | 'second' | 'third';
 export type Bonus = 'early' | 'late' | 'weekday' | 'badWeather';
 
 export interface HistoricalStats {
@@ -58,6 +58,7 @@ export interface Match {
   note: string;
   bonuses: Bonus[];
   officials: Official[];
+  additionalAssistants?: boolean;
 }
 
 export interface Adjustment {
@@ -107,7 +108,14 @@ export interface Unavailability {
   reason: string;
 }
 
+export interface Team {
+  event: CompetitionEvent;
+  name: string;
+  color: string;
+}
+
 export interface DataStore {
+  teams?: Team[];
   access?: { role: 'public' | 'referee' | 'admin'; refereeId?: string };
   revision?: number;
   updatedAt?: string;

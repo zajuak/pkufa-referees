@@ -1,5 +1,5 @@
 import type { Channel, Level, Match, MatchStatus, Official, OfficialCalculation, Referee, Adjustment, WageStandards } from './types';
-import { matchInterval } from './scheduling';
+import { isAssistantRole, matchInterval } from './scheduling';
 import { competitionEvents, getMatchEvent } from './competitions';
 
 export const CURRENT_SEASON = '2026–27';
@@ -7,7 +7,7 @@ export const HISTORY_SEASON = '2025–26';
 
 export const channelName = (channel: Channel) => channel === 'eleven' ? '十一人制' : '五人制';
 export const roleName = (role: Official['role']) => ({
-  referee: '主裁判', assistant1: '第一助理', assistant2: '第二助理', fourth: '第四官员',
+  referee: '主裁判', assistant1: '第一助理', assistant2: '第二助理', additionalAssistant1: '第一附加助理', additionalAssistant2: '第二附加助理', fourth: '第四官员',
   first: '第一裁判', second: '第二裁判', third: '第三裁判',
 }[role]);
 
@@ -40,7 +40,7 @@ export function displayLevel(channel: Channel, baseLevel: Level, points: number)
 export function calculateOfficial(match: Match, official: Official, level: Level, wageStandards?: WageStandards): OfficialCalculation {
   const event = getMatchEvent(match);
   if (!event) return { points: 0, baseWage: 0, bonusWage: 0, wage: 0 };
-  const roleIndex = ['referee', 'assistant1', 'assistant2'].includes(official.role) ? (official.role === 'referee' ? 0 : 1) : 2;
+  const roleIndex = official.role === 'referee' ? 0 : isAssistantRole(official.role) ? 1 : 2;
   let points = match.channel === 'eleven'
     ? (official.role === 'referee' ? 4 : official.role === 'fourth' ? 1 : 2)
     : (official.role === 'third' ? 1 : 2);
