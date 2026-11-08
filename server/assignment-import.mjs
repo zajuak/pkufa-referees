@@ -88,13 +88,16 @@ function makeOfficial(store, role, rawName, channel, context) {
   return { role, refereeId: referee.id, name };
 }
 
-export function stageFor(group) {
+export function stageFor(group, channel = 'eleven') {
   const label = group.replace(/\s/g, '');
   if (/排位|排名赛|名次赛/.test(label)) return 'placement';
   if (/半决赛|二分之一决赛|1[\/／]2决赛/.test(label)) return 'semifinal';
-  if (/季军|三四名/.test(label)) return 'third';
+  if (/季军|三四名/.test(label)) return channel === 'five' ? 'placement' : 'third';
   // Quarter/eighth finals contain “决赛” but must not receive final bonuses.
-  if (/分之一|1[\/／]\d+|淘汰/.test(label)) return 'knockout';
+  if (/分之一|1[\/／]\d+|淘汰/.test(label)) {
+    if (channel === 'five') throw new Error('女足北大杯阶段请明确填写常规赛、排位赛、半决赛或决赛');
+    return 'knockout';
+  }
   if (label.includes('决赛')) return 'final';
   return 'group';
 }
@@ -143,7 +146,7 @@ function parseSheet(sheet, season, store, context, selectedEvent) {
       if (!cancelled && hasSecond) officials.push(makeOfficial(store, 'second', row.getCell(6).value, 'five', context));
       matches.push({
         channel: 'five', event, competition: eventCompetitions[event] || title, date: normalizeDate(row.getCell(1).value, season), time: normalizeTime(row.getCell(2).value),
-        venue: '未注明', group, home: '', away: '', stage: stageFor(group), division: null,
+        venue: '未注明', group, home: '', away: '', stage: stageFor(group, 'five'), division: null,
         status: note.includes('比赛取消') ? 'cancelled' : 'scheduled', note, bonuses: bonusesFor(note), officials,
       });
     }
@@ -188,7 +191,7 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
         }
         Object.assign(existing, parsed, {
           id: existing.id, season: existing.season || season, week: existing.week, officials, additionalAssistants,
-          stage: parsed.stage === 'group' ? existing.stage : parsed.stage,
+          stage: parsed.stage === 'group' && !(parsed.channel === 'five' && /常规赛|小组赛/.test(parsed.group)) ? existing.stage : parsed.stage,
           status: parsed.status === 'cancelled' ? 'cancelled' : existing.status === 'completed' ? 'completed' : 'scheduled',
         });
         updated += 1;

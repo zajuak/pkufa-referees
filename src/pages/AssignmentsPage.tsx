@@ -5,6 +5,7 @@ import { useData } from '../hooks/useData';
 import { ChannelBadge, EmptyState, PageHeader, StatusBadge } from '../components/ui';
 import { availableSeasons, CURRENT_SEASON, effectiveMatchStatus, formatDate, stageName } from '../domain/calculations';
 import { competitionEvents, getMatchEvent } from '../domain/competitions';
+import { matchStageLabel } from '../domain/stages';
 import { seasonWeekRange } from '../domain/weeks';
 import { exportAssignments, exportCalendar } from '../domain/downloads';
 import { additionalAssistantRoles, usesAdditionalAssistants } from '../domain/scheduling';
@@ -80,8 +81,8 @@ export default function AssignmentsPage() {
               <td className="assignment-time" data-label="时间">{match.time || '时间待定'}</td>
               <td data-label="赛制 / 赛事"><div className="assignment-competition"><ChannelBadge channel={match.channel} /><span>{match.competition}</span></div></td>
               <td data-label="场地">{match.venue}</td>
-              <td data-label="组别 / 阶段">{match.stage === 'placement' ? [match.group, stageName(match.stage)].filter(Boolean).join(' · ') : match.group || stageName(match.stage)}</td>
-              <td data-label="对阵"><div className="assignment-versus">{match.home || match.away ? <><strong className="assignment-team"><JerseyColor side="主队" color={match.homeColor} />{match.home || '待定'}</strong><span>VS</span><strong className="assignment-team"><JerseyColor side="客队" color={match.awayColor} />{match.away || '待定'}</strong></> : <strong>{match.group || stageName(match.stage)}</strong>}</div></td>
+              <td data-label="组别 / 阶段">{matchStageLabel(match)}</td>
+              <td data-label="对阵"><div className="assignment-versus">{match.home || match.away ? <><strong className="assignment-team"><JerseyColor side="主队" color={match.homeColor} />{match.home || '待定'}</strong><span>VS</span><strong className="assignment-team"><JerseyColor side="客队" color={match.awayColor} />{match.away || '待定'}</strong></> : <strong>{match.group || stageName(match.stage, match.channel)}</strong>}</div></td>
               {roleLabels.map((label, column) => {
                 const baseRoles = assignmentRoles[match.channel];
                 const columns = [baseRoles[0], baseRoles[1], baseRoles[2], ...(showAdditional ? (match.channel === 'eleven' && usesAdditionalAssistants(match) ? additionalAssistantRoles : [undefined, undefined]) : []), baseRoles[3]];

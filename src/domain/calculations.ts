@@ -1,4 +1,5 @@
 import type { Channel, Level, Match, MatchStatus, Official, OfficialCalculation, Referee, Adjustment, WageStandards } from './types';
+import { stageLabel } from './stages';
 import { isAssistantRole, matchInterval } from './scheduling';
 import { competitionEvents, getMatchEvent } from './competitions';
 
@@ -11,9 +12,7 @@ export const roleName = (role: Official['role']) => ({
   first: '第一裁判', second: '第二裁判', third: '第三裁判',
 }[role]);
 
-export const stageName = (stage: Match['stage']) => ({
-  group: '小组赛', placement: '排位赛', knockout: '淘汰赛', semifinal: '半决赛', final: '决赛', third: '季军赛',
-}[stage]);
+export const stageName = stageLabel;
 
 export const isKnockoutStage = (stage: Match['stage']) => ['knockout', 'semifinal', 'final', 'third'].includes(stage);
 

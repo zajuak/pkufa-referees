@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DataStore, Match, Official, Team } from '../src/domain/types';
+import { allowedStages, matchStageLabel, stageOptions } from '../src/domain/stages';
 import { eventTeams, teamColor } from '../src/domain/teams';
 import { additionalAssistantRoles, assignmentIssues, matchRoles, vacantRoles } from '../src/domain/scheduling';
 import { calculateOfficial, getSeasonWage, stageName } from '../src/domain/calculations';
@@ -64,6 +65,39 @@ describe('附加助理裁判的工资、积分及岗位检查', () => {
     expect(rows[1][11]).toBe(1); // 边-乙
     expect(rows[1].at(-1)).toBe(60);
     expect(getSeasonWage(data.referees[0], 'eleven', '2026–27', [{ ...enabled, status: 'cancelled' }], [])!.total).toBe(0);
+  });
+});
+
+describe('女足北大杯四阶段', () => {
+  it('女足仅显示常规、排位、半决赛和决赛，十一人制保留原阶段', () => {
+    expect(stageOptions('five').map((s) => s.label)).toEqual(['常规赛', '排位赛', '半决赛', '决赛']);
+    expect(allowedStages('five')).toEqual(['group', 'placement', 'semifinal', 'final']);
+    expect(stageOptions('eleven').map((s) => s.label)).toEqual(['小组赛', '排位赛', '淘汰赛', '半决赛', '季军赛', '决赛']);
+    expect(stageName('group', 'five')).toBe('常规赛');
+    expect(stageName('group', 'eleven')).toBe('小组赛');
+    expect(matchStageLabel({ ...match, channel: 'five', group: 'A', stage: 'group' })).toBe('A · 常规赛');
+    expect(matchStageLabel({ ...match, channel: 'five', group: '常规赛', stage: 'group' })).toBe('常规赛');
+  });
+  it('常规赛名称兼容旧数据，不改变工资积分，Excel 按女足阶段识别', () => {
+    const women = { ...match, channel: 'five' as const, event: 'womens-pku-cup' as const, competition: '女足北大杯' };
+    expect(calculateOfficial(women, { ...official, role: 'first' }, 'C')).toMatchObject({ points: 2, wage: 40, bonusWage: 0 });
+    expect(calculateOfficial({ ...women, stage: 'semifinal' }, { ...official, role: 'first' }, 'C')).toMatchObject({ points: 3, wage: 50, bonusWage: 10 });
+    expect(stageFor('常规赛', 'five')).toBe('group');
+    expect(stageFor('排位赛', 'five')).toBe('placement');
+    expect(stageFor('季军赛', 'five')).toBe('placement');
+    expect(stageFor('半决赛', 'five')).toBe('semifinal');
+    expect(stageFor('决赛', 'five')).toBe('final');
+    expect(() => stageFor('淘汰赛', 'five')).toThrow('女足北大杯阶段');
+  });
+  it('女足保存只接受四种阶段，不能从接口写入淘汰赛或季军赛', async () => {
+    let data = seed();
+    const repo = { async load() { return structuredClone(data); }, async save(next: DataStore) { data = next; } };
+    const save = (stage: string) => handleApi(new Request('https://test/api/matches', { method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match': String(data.revision) }, body: JSON.stringify({ ...match, id: `women-${stage}`, channel: 'five', event: 'womens-pku-cup', competition: '女足北大杯', stage }) }), repo, { authenticated: true });
+    for (const stage of allowedStages('five')) expect((await save(stage)).status).toBe(201);
+    for (const stage of ['knockout', 'third']) expect((await save(stage)).status).toBe(400);
+    expect(data.matches).toHaveLength(4);
+    expect(validateSnapshot(data).matches).toHaveLength(4);
+    expect(() => validateSnapshot({ ...data, matches: [{ ...data.matches[0], stage: 'third' }] })).toThrow('比赛记录格式');
   });
 });
 

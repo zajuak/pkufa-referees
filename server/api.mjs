@@ -1,3 +1,4 @@
+import { allowedStages } from '../src/domain/stages.ts';
 import { recalculateMatchWeeks } from '../src/domain/weeks.ts';
 import { readableStore } from './access.mjs';
 import { Buffer } from 'node:buffer';
@@ -94,7 +95,8 @@ function validateMatch(input) {
   if (additionalAssistants && status !== 'cancelled') for (const role of additionalAssistantRoles) {
     if (!cleanOfficials.some((o) => o.role === role)) cleanOfficials.push({ role, refereeId: null, name: '', substitute: false });
   }
-  const stage = ['group', 'placement', 'knockout', 'semifinal', 'final', 'third'].includes(input.stage) ? input.stage : 'group';
+  const stage = input.stage || 'group';
+  if (!allowedStages(channel).includes(stage)) throw new Error(channel === 'five' ? '女足北大杯仅支持常规赛、排位赛、半决赛和决赛' : '请选择有效比赛阶段');
   const bonuses = Array.isArray(input.bonuses)
     ? input.bonuses.filter((item) => ['early', 'late', 'weekday', 'badWeather'].includes(item))
     : [];

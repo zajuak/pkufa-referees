@@ -1,5 +1,6 @@
 import { Clock3, MapPin, CloudRain, Sunrise, Sunset, CalendarRange } from 'lucide-react';
 import type { Match } from '../domain/types';
+import { matchStageLabel } from '../domain/stages';
 import { effectiveMatchStatus, roleName, stageName } from '../domain/calculations';
 import { ChannelBadge, StatusBadge } from './ui';
 
@@ -17,12 +18,12 @@ export default function MatchCard({ match }: { match: Match }) {
       <div className="match-meta">
         <span><Clock3 size={15} />{match.time || '时间待定'}</span>
         <span><MapPin size={15} />{match.venue}</span>
-        <span className="stage-label">{match.stage === 'placement' ? [match.group, stageName(match.stage)].filter(Boolean).join(' · ') : match.group || stageName(match.stage)}</span>
+        <span className="stage-label">{matchStageLabel(match)}</span>
       </div>
       {match.home || match.away ? (
         <div className="versus"><strong>{match.home || '待定'}</strong><span>VS</span><strong>{match.away || '待定'}</strong></div>
       ) : (
-        <div className="friendly-title"><strong>{match.group || stageName(match.stage)}</strong><span>{match.home}{match.away}</span></div>
+        <div className="friendly-title"><strong>{match.group || stageName(match.stage, match.channel)}</strong><span>{match.home}{match.away}</span></div>
       )}
       {status === 'cancelled' ? <p className="inline-empty">比赛已取消，无需选派裁判。</p> : <div className="official-grid">
         {match.officials.map((official, index) => (

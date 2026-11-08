@@ -4,6 +4,7 @@ import { api, useData } from '../hooks/useData';
 import { availableSeasons, CURRENT_SEASON, roleName } from '../domain/calculations';
 import { defaultCompetition, eventsForChannel, getMatchEvent } from '../domain/competitions';
 import { assignmentIssues, matchRoles, requiredRoles, usesAdditionalAssistants } from '../domain/scheduling';
+import { allowedStages, stageOptions, stageLabel } from '../domain/stages';
 import { matchWeek } from '../domain/weeks';
 import { eventTeams, teamColor } from '../domain/teams';
 import type { Bonus, Channel, CompetitionEvent, Match } from '../domain/types';
@@ -38,7 +39,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
   const update = <K extends keyof Match>(key: K, value: Match[K]) => setForm((current) => ({ ...current, [key]: value }));
   const changeChannel = (channel: Channel) => setForm((current) => {
     const event = channel === 'eleven' ? 'freshmen-cup' : 'womens-pku-cup';
-    return { ...current, channel, event, competition: defaultCompetition(event), additionalAssistants: false, home: '', away: '', homeColor: '', awayColor: '', officials: current.status === 'cancelled' ? [] : requiredRoles(channel).map((role) => ({ role, refereeId: null, name: '' })) };
+    return { ...current, channel, event, competition: defaultCompetition(event), stage: allowedStages(channel).includes(current.stage) ? current.stage : 'group', additionalAssistants: false, home: '', away: '', homeColor: '', awayColor: '', officials: current.status === 'cancelled' ? [] : requiredRoles(channel).map((role) => ({ role, refereeId: null, name: '' })) };
   });
   const changeEvent = (event: CompetitionEvent) => setForm((current) => ({ ...current, event, competition: defaultCompetition(event), home: '', away: '', homeColor: '', awayColor: '' }));
   const changeStatus = (status: Match['status']) => setForm((current) => ({
@@ -85,7 +86,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
         <label>时间<input required placeholder="12:00-14:00" value={form.time} onChange={(event) => update('time', event.target.value)} /></label>
         <label>场地<input required value={form.venue} onChange={(event) => update('venue', event.target.value)} /></label>
         <label>组别<input value={form.group} onChange={(event) => update('group', event.target.value)} /></label>
-        <label>比赛阶段<select value={form.stage} onChange={(event) => update('stage', event.target.value as Match['stage'])}><option value="group">小组赛</option><option value="placement">排位赛</option><option value="knockout">淘汰赛</option><option value="semifinal">半决赛</option><option value="third">季军赛</option><option value="final">决赛</option></select></label>
+        <label>比赛阶段<select value={form.stage} onChange={(event) => update('stage', event.target.value as Match['stage'])}>{!allowedStages(form.channel).includes(form.stage) && <option value={form.stage} disabled>旧阶段：{stageLabel(form.stage)}（请选择新阶段）</option>}{stageOptions(form.channel).map((stage) => <option key={stage.value} value={stage.value}>{stage.label}</option>)}</select></label>
       </div>
       <div className="form-grid two-cols">{(['home', 'away'] as const).map((side) => <label key={side}>{side === 'home' ? '主队' : '客队'}<select aria-label={side === 'home' ? '主队' : '客队'} value={form[side]} onChange={(e) => chooseTeam(side, e.target.value)}><option value="">请选择球队（可暂不选择）</option>{teams.map((team) => <option key={team.name} value={team.name}>{team.name}{team.bound ? '' : ' · 未绑定颜色'}</option>)}</select></label>)}</div>
       <p className="adjustment-help">球队按赛事分别维护，请先在“球队与球衣”中绑定。选择球队后自动填色；下方可为本场临时调整，不改写球队默认色或历史比赛。</p>
