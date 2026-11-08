@@ -18,7 +18,16 @@ function emptyMatch(): Match {
 
 export default function AdminMatchForm({ match, onClose }: { match: Match | null; onClose: () => void }) {
   const { data, refresh } = useData();
-  const [form, setForm] = useState<Match>(() => match ? { ...emptyMatch(), ...match, event: getMatchEvent(match) || (match.channel === 'eleven' ? 'freshmen-cup' : 'womens-pku-cup'), additionalAssistants: usesAdditionalAssistants(match), officials: match.status === 'cancelled' ? [] : matchRoles(match).map((role) => match.officials.find((item) => item.role === role) || { role, refereeId: null, name: '' }) } : emptyMatch());
+  const [form, setForm] = useState<Match>(() => {
+    if (!match) return emptyMatch();
+    const event = getMatchEvent(match) || (match.channel === 'eleven' ? 'freshmen-cup' : 'womens-pku-cup');
+    return { ...emptyMatch(), ...match, event,
+      homeColor: match.homeColor || teamColor(data!, event, match.home),
+      awayColor: match.awayColor || teamColor(data!, event, match.away),
+      additionalAssistants: usesAdditionalAssistants(match),
+      officials: match.status === 'cancelled' ? [] : matchRoles(match).map((role) => match.officials.find((item) => item.role === role) || { role, refereeId: null, name: '' }),
+    };
+  });
   const [saving, setSaving] = useState(false);
   const [officialQueries, setOfficialQueries] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
