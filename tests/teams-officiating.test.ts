@@ -9,7 +9,7 @@ import { handleApi } from '../server/api.mjs';
 // @ts-expect-error Validates durable JSON snapshots.
 import { validateSnapshot } from '../server/validation.mjs';
 // @ts-expect-error Workbook importer shared by both runtimes.
-import { importAssignmentWorkbook } from '../server/assignment-import.mjs';
+import { importAssignmentWorkbook, stageFor } from '../server/assignment-import.mjs';
 import { strToU8, zipSync } from 'fflate';
 
 const match: Match = { id: 'm1', season: '2026–27', week: 1, channel: 'eleven', event: 'freshmen-cup', competition: '新生杯', date: '2026-10-01', time: '12:00-14:00', venue: '北场', group: '', home: '测试甲', away: '测试乙', stage: 'group', division: null, status: 'completed', note: '', bonuses: [], officials: [] };
@@ -84,6 +84,12 @@ describe('持久化、接口权限、备份及导入', () => {
     expect((await call('DELETE', '/api/teams?event=freshmen-cup&name='+encodeURIComponent(binding.name))).status).toBe(204);
     expect(data.teams).toHaveLength(0);
     expect(data.matches[0].homeColor).toBe('#00FF00');
+  });
+  it('Excel 阶段识别不会把四分之一、八分之一决赛当作决赛发补贴', () => {
+    for (const label of ['1/4决赛', '1／8决赛', '四分之一决赛', '八分之一决赛', '淘汰赛']) expect(stageFor(label)).toBe('knockout');
+    for (const label of ['半决赛', '1/2决赛', '二分之一决赛']) expect(stageFor(label)).toBe('semifinal');
+    expect(stageFor('甲组决赛')).toBe('final');
+    expect(stageFor('季军赛')).toBe('third');
   });
   it('重传原始四岗位 Excel 不会清除手动启用的附加助理', () => {
     const data = seed();

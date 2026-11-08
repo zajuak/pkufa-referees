@@ -87,11 +87,13 @@ function makeOfficial(store, role, rawName, channel, context) {
   return { role, refereeId: referee.id, name };
 }
 
-function stageFor(group) {
-  if (group.includes('半决赛')) return 'semifinal';
-  if (group.includes('季军')) return 'third';
-  if (group.includes('决赛')) return 'final';
-  if (group.includes('淘汰')) return 'knockout';
+export function stageFor(group) {
+  const label = group.replace(/\s/g, '');
+  if (/半决赛|二分之一决赛|1[\/／]2决赛/.test(label)) return 'semifinal';
+  if (/季军|三四名/.test(label)) return 'third';
+  // Quarter/eighth finals contain “决赛” but must not receive final bonuses.
+  if (/分之一|1[\/／]\d+|淘汰/.test(label)) return 'knockout';
+  if (label.includes('决赛')) return 'final';
   return 'group';
 }
 
