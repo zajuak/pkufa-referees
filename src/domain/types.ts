@@ -2,7 +2,7 @@ export type Channel = 'eleven' | 'five';
 export type CompetitionEvent = 'freshmen-cup' | 'mens-pku-cup' | 'womens-pku-cup';
 export type Level = 'A' | 'B' | 'C' | 'D' | 'E';
 export type MatchStatus = 'scheduled' | 'completed' | 'cancelled';
-export type Stage = 'group' | 'knockout' | 'semifinal' | 'final' | 'third';
+export type Stage = 'group' | 'placement' | 'knockout' | 'semifinal' | 'final' | 'third';
 export type Role = 'referee' | 'assistant1' | 'assistant2' | 'additionalAssistant1' | 'additionalAssistant2' | 'fourth' | 'first' | 'second' | 'third';
 export type Bonus = 'early' | 'late' | 'weekday' | 'badWeather';
 

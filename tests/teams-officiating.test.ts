@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DataStore, Match, Official, Team } from '../src/domain/types';
 import { eventTeams, teamColor } from '../src/domain/teams';
 import { additionalAssistantRoles, assignmentIssues, matchRoles, vacantRoles } from '../src/domain/scheduling';
-import { calculateOfficial, getSeasonWage } from '../src/domain/calculations';
+import { calculateOfficial, getSeasonWage, stageName } from '../src/domain/calculations';
 import { seasonExportRows } from '../src/domain/season-export';
 // @ts-expect-error Node Fetch API module.
 import { handleApi } from '../server/api.mjs';
@@ -36,6 +36,16 @@ describe('附加助理裁判的工资、积分及岗位检查', () => {
       expect(calculateOfficial({ ...m, bonuses: [...m.bonuses] }, { ...official, role }, 'C')).toEqual(calculateOfficial({ ...m, bonuses: [...m.bonuses] }, { ...official, role: 'assistant1' }, 'C'));
     }
   });
+  it('排位赛按常规积分和工资核算，不误加淘汰倍率或半决赛决赛补贴', () => {
+    expect(stageName('placement')).toBe('排位赛');
+    for (const role of ['referee', 'assistant1', 'additionalAssistant1', 'fourth'] as const) {
+      expect(calculateOfficial({ ...match, stage: 'placement' }, { ...official, role }, 'C')).toEqual(calculateOfficial(match, { ...official, role }, 'C'));
+    }
+    const data = seed();
+    data.matches = [{ ...match, stage: 'placement', officials: [{ ...official, role: 'assistant1' }] }];
+    expect(seasonExportRows(data).eleven[1][11]).toBe(1);
+    expect(seasonExportRows(data).eleven[1][13]).toBe(0);
+  });
   it('半决赛和决赛自动增加奖励，普通淘汰赛不误发', () => {
     for (const role of ['referee', 'assistant1', 'additionalAssistant1', 'fourth'] as const) {
       const base = calculateOfficial(match, { ...official, role }, 'C');
@@ -67,10 +77,12 @@ describe('持久化、接口权限、备份及导入', () => {
     expect((await call('PUT', '/api/teams', binding)).status).toBe(200);
     expect((await call('PUT', '/api/teams', { ...binding, color: '#00FF00' })).status).toBe(200);
     expect(data.teams).toHaveLength(1);
-    const saved = await call('POST', '/api/matches', { ...match, additionalAssistants: true, officials: [official] });
+    const saved = await call('POST', '/api/matches', { ...match, stage: 'placement', additionalAssistants: true, officials: [official] });
     expect(saved.status).toBe(201);
     const m = await saved.json();
     expect(m.homeColor).toBe('#00FF00');
+    expect(m.stage).toBe('placement');
+    expect(validateSnapshot(data).matches[0].stage).toBe('placement');
     expect(m.officials.filter((o: Official) => additionalAssistantRoles.includes(o.role))).toHaveLength(2);
     expect(validateSnapshot(data).teams).toEqual(data.teams);
     const oldRevision = data.revision;
@@ -90,6 +102,7 @@ describe('持久化、接口权限、备份及导入', () => {
     for (const label of ['半决赛', '1/2决赛', '二分之一决赛']) expect(stageFor(label)).toBe('semifinal');
     expect(stageFor('甲组决赛')).toBe('final');
     expect(stageFor('季军赛')).toBe('third');
+    for (const label of ['排位赛', '5-8名排位赛', '9-12名排名赛', '名次赛']) expect(stageFor(label)).toBe('placement');
   });
   it('重传原始四岗位 Excel 不会清除手动启用的附加助理', () => {
     const data = seed();

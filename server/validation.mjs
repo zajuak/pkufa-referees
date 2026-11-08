@@ -14,7 +14,7 @@ export function validateSnapshot(input) {
   }
   const matchIds = new Set();
   for (const m of value.matches) {
-    if (!m.id || matchIds.has(m.id) || !date(m.date) || !['eleven', 'five'].includes(m.channel) || !['scheduled', 'completed', 'cancelled'].includes(m.status) || !Array.isArray(m.officials) || !Array.isArray(m.bonuses) || !finite(m.week) || !['group', 'knockout', 'semifinal', 'final', 'third'].includes(m.stage) || ['competition', 'time', 'venue', 'group', 'home', 'away', 'note'].some((k) => typeof m[k] !== 'string')) throw new Error('比赛记录格式有误');
+    if (!m.id || matchIds.has(m.id) || !date(m.date) || !['eleven', 'five'].includes(m.channel) || !['scheduled', 'completed', 'cancelled'].includes(m.status) || !Array.isArray(m.officials) || !Array.isArray(m.bonuses) || !finite(m.week) || !['group', 'placement', 'knockout', 'semifinal', 'final', 'third'].includes(m.stage) || ['competition', 'time', 'venue', 'group', 'home', 'away', 'note'].some((k) => typeof m[k] !== 'string')) throw new Error('比赛记录格式有误');
     matchIds.add(m.id);
     if (m.additionalAssistants !== undefined && typeof m.additionalAssistants !== 'boolean') throw new Error('附加助理裁判设置不正确');
     if (m.additionalAssistants && m.channel !== 'eleven') throw new Error('仅十一人制可设置附加助理裁判');

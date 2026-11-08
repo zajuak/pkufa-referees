@@ -1,5 +1,5 @@
 import { strToU8, zipSync } from 'fflate';
-import { CURRENT_SEASON, getChannelSummary, getSeasonPoints, getSeasonWage } from './calculations';
+import { CURRENT_SEASON, getChannelSummary, getSeasonPoints, getSeasonWage, isKnockoutStage } from './calculations';
 import type { Channel, DataStore, Referee } from './types';
 
 type Cell = string | number;
@@ -22,7 +22,7 @@ export function seasonExportRows(data: DataStore, season = CURRENT_SEASON) {
     const { stats, summary, points, wage } = exportContext(referee, 'eleven', season, data);
     const count = (roles: string[], knockout: boolean, firstDivision: boolean) => wage.contributions.filter(({ match, official }) => (
       roles.includes(official.role)
-      && (match.stage !== 'group') === knockout
+      && isKnockoutStage(match.stage) === knockout
       && (firstDivision ? match.division === '甲' : match.division !== '甲')
     )).length;
     const roleCounts = ['referee', 'assistant', 'fourth'].flatMap((role) => {

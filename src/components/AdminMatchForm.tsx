@@ -4,6 +4,7 @@ import { api, useData } from '../hooks/useData';
 import { availableSeasons, CURRENT_SEASON, roleName } from '../domain/calculations';
 import { defaultCompetition, eventsForChannel, getMatchEvent } from '../domain/competitions';
 import { assignmentIssues, matchRoles, requiredRoles, usesAdditionalAssistants } from '../domain/scheduling';
+import { matchWeek } from '../domain/weeks';
 import { eventTeams, teamColor } from '../domain/teams';
 import type { Bonus, Channel, CompetitionEvent, Match } from '../domain/types';
 
@@ -31,6 +32,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
   const [saving, setSaving] = useState(false);
   const [officialQueries, setOfficialQueries] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
+  const calculatedWeek = matchWeek(form, data!.matches, data!.meta.season);
   const issues = assignmentIssues(form, data!.matches, data!.unavailability);
   const seasons = availableSeasons(data!.matches, data!.adjustments);
   const update = <K extends keyof Match>(key: K, value: Match[K]) => setForm((current) => ({ ...current, [key]: value }));
@@ -57,7 +59,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
   const save = async () => {
     setSaving(true); setError('');
     try {
-      await api(form.id ? `/api/matches/${form.id}` : '/api/matches', { method: form.id ? 'PUT' : 'POST', body: JSON.stringify(form) });
+      await api(form.id ? `/api/matches/${form.id}` : '/api/matches', { method: form.id ? 'PUT' : 'POST', body: JSON.stringify({ ...form, week: calculatedWeek }) });
       await refresh(); onClose();
     } catch (reason) { setError(reason instanceof Error ? reason.message : '保存失败'); }
     finally { setSaving(false); }
@@ -74,7 +76,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
       <div className="form-heading"><div><span>{form.id ? '编辑比赛' : '新增比赛'}</span><small>完成后自动重算工资与积分</small></div><button type="button" className="icon-button" onClick={onClose} aria-label="关闭表单"><X size={18} /></button></div>
       <div className="form-grid three-cols">
         <label>赛季<select value={form.season} onChange={(event) => update('season', event.target.value)}>{seasons.map((season) => <option key={season}>{season}</option>)}</select></label>
-        <label>周次<input type="number" min="1" required value={form.week} onChange={(event) => update('week', Number(event.target.value))} /></label>
+        <label>周次（自动计算）<input aria-label="周次" type="number" min="1" readOnly value={calculatedWeek} /><small className="auto-week-note">按本赛季首场比赛起算，周四至下周三为一周。</small></label>
         <label>赛制<select value={form.channel} onChange={(event) => changeChannel(event.target.value as Channel)}><option value="eleven">十一人制</option><option value="five">五人制</option></select></label>
       </div>
       <div className="form-grid two-cols">
@@ -83,7 +85,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
         <label>时间<input required placeholder="12:00-14:00" value={form.time} onChange={(event) => update('time', event.target.value)} /></label>
         <label>场地<input required value={form.venue} onChange={(event) => update('venue', event.target.value)} /></label>
         <label>组别<input value={form.group} onChange={(event) => update('group', event.target.value)} /></label>
-        <label>比赛阶段<select value={form.stage} onChange={(event) => update('stage', event.target.value as Match['stage'])}><option value="group">小组赛</option><option value="knockout">淘汰赛</option><option value="semifinal">半决赛</option><option value="third">季军赛</option><option value="final">决赛</option></select></label>
+        <label>比赛阶段<select value={form.stage} onChange={(event) => update('stage', event.target.value as Match['stage'])}><option value="group">小组赛</option><option value="placement">排位赛</option><option value="knockout">淘汰赛</option><option value="semifinal">半决赛</option><option value="third">季军赛</option><option value="final">决赛</option></select></label>
       </div>
       <div className="form-grid two-cols">{(['home', 'away'] as const).map((side) => <label key={side}>{side === 'home' ? '主队' : '客队'}<select aria-label={side === 'home' ? '主队' : '客队'} value={form[side]} onChange={(e) => chooseTeam(side, e.target.value)}><option value="">请选择球队（可暂不选择）</option>{teams.map((team) => <option key={team.name} value={team.name}>{team.name}{team.bound ? '' : ' · 未绑定颜色'}</option>)}</select></label>)}</div>
       <p className="adjustment-help">球队按赛事分别维护，请先在“球队与球衣”中绑定。选择球队后自动填色；下方可为本场临时调整，不改写球队默认色或历史比赛。</p>

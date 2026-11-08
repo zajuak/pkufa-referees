@@ -609,3 +609,4 @@ table { width: 100%; border-collapse: collapse; }
 @media(max-width:760px){.assignment-table.with-additional td:nth-child(11){grid-column:auto}.assignment-table.with-additional td:last-child{grid-column:1/-1}}
 .assignment-table.with-additional{min-width:1100px}
 @media(max-width:760px){.assignment-table.with-additional{min-width:0}.assignment-table.with-additional td:nth-child(n),.assignment-table.with-additional th:nth-child(n){width:auto!important}}
+.auto-week-note{font-size:11px;color:var(--muted);font-weight:400;line-height:1.5}

@@ -1,3 +1,4 @@
+import { recalculateMatchWeeks } from '../src/domain/weeks.ts';
 import { readableStore } from './access.mjs';
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
@@ -14,12 +15,14 @@ export function validDate(value) {
 export async function handleApi(request, repository, auth) {
   const before = await repository.load();
   let store = structuredClone(before);
+  recalculateMatchWeeks(store.matches, store.meta.season);
   const app = new Router(request);
   const requireAdmin = (_req, res, next) => auth.authenticated ? next() : res.status(401).json({ error: '请先登录管理员账号' });
   const persist = async () => {
     const supplied = request.headers.get('If-Match');
     if (supplied === null) throw Object.assign(new Error('请刷新页面后再保存'), { status: 428 });
     if (Number(supplied) !== (before.revision || 0)) throw Object.assign(new Error('数据已被其他窗口更新，请刷新后重新编辑；本次修改尚未保存'), { status: 409 });
+    recalculateMatchWeeks(store.matches, store.meta.season);
     store.revision = (before.revision || 0) + 1;
     store.updatedAt = new Date().toISOString();
     await repository.save(store, before.revision || 0, `${request.method} ${new URL(request.url).pathname}`);
@@ -91,7 +94,7 @@ function validateMatch(input) {
   if (additionalAssistants && status !== 'cancelled') for (const role of additionalAssistantRoles) {
     if (!cleanOfficials.some((o) => o.role === role)) cleanOfficials.push({ role, refereeId: null, name: '', substitute: false });
   }
-  const stage = ['group', 'knockout', 'semifinal', 'final', 'third'].includes(input.stage) ? input.stage : 'group';
+  const stage = ['group', 'placement', 'knockout', 'semifinal', 'final', 'third'].includes(input.stage) ? input.stage : 'group';
   const bonuses = Array.isArray(input.bonuses)
     ? input.bonuses.filter((item) => ['early', 'late', 'weekday', 'badWeather'].includes(item))
     : [];

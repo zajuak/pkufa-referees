@@ -12,8 +12,10 @@ export const roleName = (role: Official['role']) => ({
 }[role]);
 
 export const stageName = (stage: Match['stage']) => ({
-  group: '小组赛', knockout: '淘汰赛', semifinal: '半决赛', final: '决赛', third: '季军赛',
+  group: '小组赛', placement: '排位赛', knockout: '淘汰赛', semifinal: '半决赛', final: '决赛', third: '季军赛',
 }[stage]);
+
+export const isKnockoutStage = (stage: Match['stage']) => ['knockout', 'semifinal', 'final', 'third'].includes(stage);
 
 export const defaultWageStandards: WageStandards = {
   'freshmen-cup': { A: [125, 70, 45], B: [120, 65, 40], C: [110, 60, 30], D: [100, 55, 25], E: [90, 50, 20] },
@@ -44,7 +46,7 @@ export function calculateOfficial(match: Match, official: Official, level: Level
   let points = match.channel === 'eleven'
     ? (official.role === 'referee' ? 4 : official.role === 'fourth' ? 1 : 2)
     : (official.role === 'third' ? 1 : 2);
-  if (match.stage !== 'group') points *= 1.5;
+  if (isKnockoutStage(match.stage)) points *= 1.5;
   if (match.channel === 'eleven' && match.competition.includes('北大杯')) points *= 1.2;
 
   const eventWages = wageStandards?.[event] || defaultWageStandards[event];

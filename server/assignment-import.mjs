@@ -1,3 +1,4 @@
+import { recalculateMatchWeeks } from '../src/domain/weeks.ts';
 import { additionalAssistantRoles, usesAdditionalAssistants } from '../src/domain/scheduling.ts';
 import { randomUUID } from 'node:crypto';
 import { parseWorkbook } from './xlsx.mjs';
@@ -89,6 +90,7 @@ function makeOfficial(store, role, rawName, channel, context) {
 
 export function stageFor(group) {
   const label = group.replace(/\s/g, '');
+  if (/排位|排名赛|名次赛/.test(label)) return 'placement';
   if (/半决赛|二分之一决赛|1[\/／]2决赛/.test(label)) return 'semifinal';
   if (/季军|三四名/.test(label)) return 'third';
   // Quarter/eighth finals contain “决赛” but must not receive final bonuses.
@@ -196,6 +198,7 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
       }
     }
   }
+  recalculateMatchWeeks(store.matches, store.meta.season);
   store.meta.counts = {
     elevenMatches: store.matches.filter((match) => match.channel === 'eleven').length,
     fiveMatches: store.matches.filter((match) => match.channel === 'five').length,
