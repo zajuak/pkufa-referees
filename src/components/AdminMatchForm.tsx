@@ -8,6 +8,7 @@ import { automaticTimeBonuses, matchBonuses, timeBonusKinds, timeBonusLabels } f
 import { allowedStages, stageOptions, stageLabel } from '../domain/stages';
 import { matchWeek } from '../domain/weeks';
 import { eventTeams, teamColor } from '../domain/teams';
+import { normalizeRefereeName, refereeNameKey } from '../domain/referees';
 import type { Channel, CompetitionEvent, Match } from '../domain/types';
 
 function emptyMatch(): Match {
@@ -34,7 +35,13 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
   const [error, setError] = useState('');
   const automaticBonuses = automaticTimeBonuses(form);
   const calculatedWeek = matchWeek(form, data!.matches, data!.meta.season);
-  const issues = assignmentIssues(form, data!.matches, data!.unavailability);
+  const issues = assignmentIssues({ ...form, officials: form.officials.map((official) => {
+    if (official.refereeId || !official.name) return official;
+    const sameName = data!.referees.filter((referee) => refereeNameKey(referee.name) === refereeNameKey(official.name));
+    const sameChannel = sameName.filter((referee) => referee.channels[form.channel]);
+    const existing = sameChannel.length === 1 ? sameChannel[0] : sameName.length === 1 ? sameName[0] : undefined;
+    return { ...official, refereeId: existing?.id || `new:${refereeNameKey(official.name)}` };
+  }) }, data!.matches, data!.unavailability);
   const seasons = availableSeasons(data!.matches, data!.adjustments);
   const update = <K extends keyof Match>(key: K, value: Match[K]) => setForm((current) => ({ ...current, [key]: value }));
   const changeChannel = (channel: Channel) => setForm((current) => {
@@ -53,7 +60,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
   for (const name of [form.home, form.away]) if (name && !teams.some((team) => team.name === name)) teams.push({ event: selectedEvent, name, color: '', bound: false });
   const chooseTeam = (side: 'home' | 'away', name: string) => setForm((current) => ({ ...current, [side]: name, [`${side}Color`]: teamColor(data!, selectedEvent, name) }));
   const changeAdditional = (enabled: boolean) => {
-    if (!enabled && form.officials.some((o) => o.role.startsWith('additionalAssistant') && o.refereeId) && !window.confirm('关闭后将移除本场的两名附加助理选派，并重算工资积分，是否继续？')) return;
+    if (!enabled && form.officials.some((o) => o.role.startsWith('additionalAssistant') && (o.refereeId || o.name)) && !window.confirm('关闭后将移除本场的两名附加助理选派，并重算工资积分，是否继续？')) return;
     setForm((current) => ({ ...current, additionalAssistants: enabled, officials: current.status === 'cancelled' ? [] : requiredRoles(current.channel, enabled).map((role) => current.officials.find((o) => o.role === role) || { role, refereeId: null, name: '' }) }));
   };
 
@@ -97,24 +104,29 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
       <div className="form-grid two-cols"><label>联赛组别<select value={form.division || ''} onChange={(event) => update('division', (event.target.value || null) as Match['division'])}><option value="">不适用</option><option value="甲">甲组（北大杯工资 ×1.1）</option><option value="乙">乙组</option></select></label><label>比赛状态<select value={form.status} onChange={(event) => changeStatus(event.target.value as Match['status'])}><option value="scheduled">待进行（结束后自动完成）</option><option value="completed">手动标记已完成</option><option value="cancelled">已取消</option></select></label></div>
       {form.channel === 'eleven' && <fieldset className="additional-assistant-setting"><label><input type="checkbox" checked={Boolean(form.additionalAssistants)} onChange={(e) => changeAdditional(e.target.checked)} />需要附加助理裁判（2 人）</label><p>启用后增加两个岗位，工资、积分及半决赛/决赛补贴均与助理裁判相同。</p></fieldset>}
       {form.status !== 'cancelled' && ['semifinal', 'final'].includes(form.stage) && <p className="automatic-supplement" role="status">{form.stage === 'semifinal' ? '半决赛' : '决赛'}补贴自动计入工资：{form.channel === 'eleven' ? '主裁、助理及附加助理' : '第一、第二裁判'}每人 +{form.stage === 'semifinal' ? 10 : 20} 元，{form.channel === 'eleven' ? '第四官员' : '第三裁判'} +{form.stage === 'semifinal' ? 5 : 10} 元，无需再登记奖惩。</p>}
-      {form.status === 'cancelled' ? <p className="inline-empty">比赛已取消，无需选派裁判。</p> : <fieldset className="official-fields"><legend>裁判选派</legend>{form.officials.map((official, index) => {
+      {form.status === 'cancelled' ? <p className="inline-empty">比赛已取消，无需选派裁判。</p> : <fieldset className="official-fields"><legend>裁判选派</legend><p className="adjustment-help">输入姓名后在下拉框中选派；没有档案时可选择“新建并选派”，保存比赛时自动创建。已有其他赛制档案会直接补齐本赛制，不重复建档。</p>{form.officials.map((official, index) => {
         const roleLabel = roleName(official.role);
-        const query = (officialQueries[official.role] || '').trim().replace(/\s/g, '');
+        const typedName = normalizeRefereeName(officialQueries[official.role] || '');
+        const query = refereeNameKey(typedName);
+        const pendingName = !official.refereeId ? official.name : '';
+        const candidateName = query && !data!.referees.some((referee) => referee.channels[form.channel] && refereeNameKey(referee.name) === query) ? typedName : '';
+        const pendingNames = [...new Set([pendingName, candidateName].filter(Boolean))];
         const eligibleReferees = data!.referees
           .filter((referee) => referee.channels[form.channel])
-          .filter((referee) => referee.id === official.refereeId || referee.name.replace(/\s/g, '').includes(query))
+          .filter((referee) => referee.id === official.refereeId || refereeNameKey(referee.name).includes(query))
           .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
         return <div className="official-input" key={official.role}>
           <span>{roleLabel}</span>
           <div className="official-picker">
-            <input type="search" aria-label={`${roleLabel}搜索`} value={officialQueries[official.role] || ''} onChange={(event) => setOfficialQueries((current) => ({ ...current, [official.role]: event.target.value }))} placeholder="搜索裁判员姓名" />
-            <select aria-label={roleLabel} value={official.refereeId || ''} onChange={(event) => {
-              const refereeId = event.target.value || null;
-              const selected = data!.referees.find((item) => item.id === refereeId);
-              setForm((current) => ({ ...current, officials: current.officials.map((item, i) => i === index ? { ...item, refereeId, name: selected?.name || '' } : item) }));
-            }}><option value="">待选派</option>{eligibleReferees.map((referee) => <option key={referee.id} value={referee.id}>{referee.name}</option>)}{!eligibleReferees.length && <option disabled>没有匹配的裁判员</option>}</select>
+            <input type="search" maxLength={40} aria-label={`${roleLabel}搜索`} value={officialQueries[official.role] || ''} onChange={(event) => setOfficialQueries((current) => ({ ...current, [official.role]: event.target.value }))} placeholder="搜索或输入新裁判姓名" />
+            <select aria-label={roleLabel} value={official.refereeId || (pendingName ? `new:${pendingName}` : '')} onChange={(event) => {
+              const selected = data!.referees.find((item) => item.id === event.target.value);
+              const newName = !selected && event.target.value.startsWith('new:') ? event.target.value.slice(4) : '';
+              const refereeId = newName ? null : event.target.value || null;
+              setForm((current) => ({ ...current, officials: current.officials.map((item, i) => i === index ? { ...item, refereeId, name: selected?.name || newName } : item) }));
+            }}><option value="">待选派</option>{eligibleReferees.map((referee) => <option key={referee.id} value={referee.id}>{referee.name}</option>)}{pendingNames.map((name) => <option key={`new:${name}`} value={`new:${name}`}>{data!.referees.some((referee) => refereeNameKey(referee.name) === refereeNameKey(name)) ? '选派并补齐档案' : '新建并选派'}：{name}</option>)}{!eligibleReferees.length && !pendingNames.length && <option disabled>没有匹配的裁判员</option>}</select>
           </div>
-          {official.refereeId && <label className="substitute-check"><input type="checkbox" checked={official.substitute || false} onChange={(event) => setForm((current) => ({ ...current, officials: current.officials.map((item, i) => i === index ? { ...item, substitute: event.target.checked } : item) }))} />临时替补 +10 元</label>}
+          {(official.refereeId || official.name) && <label className="substitute-check"><input type="checkbox" checked={official.substitute || false} onChange={(event) => setForm((current) => ({ ...current, officials: current.officials.map((item, i) => i === index ? { ...item, substitute: event.target.checked } : item) }))} />临时替补 +10 元</label>}
         </div>;
       })}</fieldset>}
       <fieldset className="bonus-checks"><legend>时间补贴（自动判定）</legend>{timeBonusKinds.map((bonus) => <label key={bonus}><input type="checkbox" checked={automaticBonuses.includes(bonus)} disabled readOnly />{timeBonusLabels[bonus]}</label>)}<p className="time-bonus-help">10:00及以前开赛为早场，20:00及以后为晚场；非周六、周日为非常规时间。按比赛日期及开赛时间自动更新，命中多项仍只计一次 10 元时间补贴。</p></fieldset>

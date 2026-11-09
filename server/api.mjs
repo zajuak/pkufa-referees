@@ -2,6 +2,7 @@ import { recalculateMatchBonuses } from '../src/domain/time-bonuses.ts';
 import { allowedStages } from '../src/domain/stages.ts';
 import { recalculateMatchWeeks } from '../src/domain/weeks.ts';
 import { readableStore } from './access.mjs';
+import { initialChannelStats, normalizeRefereeName, refereeNameKey } from '../src/domain/referees.ts';
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import { importAssignmentWorkbook } from './assignment-import.mjs';
@@ -57,6 +58,22 @@ function updateMatchCounts() {
   };
 }
 
+function refereeForName(rawName, channel) {
+  const name = normalizeRefereeName(text(rawName, 40));
+  if (!name) return null;
+  const sameName = store.referees.filter((referee) => refereeNameKey(referee.name) === refereeNameKey(name));
+  const sameChannel = sameName.filter((referee) => referee.channels[channel]);
+  if (sameChannel.length > 1 || (!sameChannel.length && sameName.length > 1)) throw new Error('存在同名裁判员，请从列表选择具体档案');
+  if (sameChannel.length === 1) return sameChannel[0];
+  let referee = sameName[0];
+  if (!referee) {
+    referee = { id: `referee-${randomUUID()}`, name, channels: {} };
+    store.referees.push(referee);
+  }
+  referee.channels[channel] = initialChannelStats(channel);
+  return referee;
+}
+
 function validateMatch(input) {
   const date = text(input.date, 10);
   if (!validDate(date)) throw new Error('请选择有效比赛日期');
@@ -86,12 +103,12 @@ function validateMatch(input) {
     .filter((item) => allowedRoles.includes(item.role))
     .map((item) => {
       const refereeId = text(item.refereeId, 80) || null;
-      const referee = refereeId ? store.referees.find((item) => item.id === refereeId) : null;
+      const referee = refereeId ? store.referees.find((item) => item.id === refereeId) : refereeForName(item.name, channel);
       if (refereeId && (!referee || !referee.channels[channel])) throw new Error('裁判员没有对应赛制的档案');
       return {
         role: item.role,
-        refereeId,
-        name: referee?.name || text(item.name, 40),
+        refereeId: referee?.id || null,
+        name: referee?.name || '',
         substitute: Boolean(item.substitute),
       };
     });
@@ -300,23 +317,11 @@ app.delete('/api/matches/:id', requireAdmin, async (req, res) => {
 
 app.post('/api/referees', requireAdmin, async (req, res, next) => {
   try {
-    const name = text(req.body?.name, 40);
+    const name = normalizeRefereeName(text(req.body?.name, 40));
     if (!name) throw new Error('请输入裁判员姓名');
     const channel = req.body?.channel === 'five' ? 'five' : 'eleven';
-    const emptyStats = () => ({
-      basePoints: 0,
-      baseLevel: channel === 'five' ? 'C' : 'E',
-      previousWage: 0,
-      historical: { pointsEarned: 0, roleCounts: {}, bonusWage: 0, deductedWage: 0, bonusPoints: 0, deductedPoints: 0 },
-    });
-    let referee = store.referees.find((item) => item.name === name && !item.channels[channel]);
-    if (referee) {
-      referee.channels[channel] = emptyStats();
-    } else {
-      if (store.referees.some((item) => item.name === name)) throw new Error('该渠道已存在同名裁判，请在原记录中处理');
-      referee = { id: `referee-${randomUUID()}`, name, channels: { [channel]: emptyStats() } };
-      store.referees.push(referee);
-    }
+    if (store.referees.some((item) => refereeNameKey(item.name) === refereeNameKey(name) && item.channels[channel])) throw new Error('该渠道已存在同名裁判，请在原记录中处理');
+    const referee = refereeForName(name, channel);
     await persist();
     res.status(201).json(referee);
   } catch (error) { next(error); }
