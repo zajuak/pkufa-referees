@@ -89,14 +89,14 @@ export default function AssignmentsPage() {
                 const columns = [baseRoles[0], baseRoles[1], baseRoles[2], ...(showAdditional ? (match.channel === 'eleven' && usesAdditionalAssistants(match) ? additionalAssistantRoles : [undefined, undefined]) : []), baseRoles[3]];
                 const role = columns[column];
                 const official = role ? match.officials.find((item) => item.role === role) : undefined;
-                return <td className="assignment-official-cell" key={column} data-label={label}>{role && status !== 'cancelled' ? <span className={official?.name ? 'assignment-official' : 'assignment-official pending'}>{official?.name || '待选派'}{official?.substitute && <small>临替</small>}</span> : '—'}</td>;
+                return <td className="assignment-official-cell" key={column} data-label={label}>{role && status !== 'cancelled' && official?.name ? <span className="assignment-official">{official.name}{official.substitute && <small>临替</small>}</span> : null}</td>;
               })}
               <td data-label="状态 / 备注"><div className="assignment-status"><StatusBadge status={status} />{status !== 'cancelled' && automaticTimeBonuses(match).length > 0 && <small className="auto-time-labels">{automaticTimeBonuses(match).map((bonus) => timeBonusLabels[bonus]).join(' · ')}</small>}{match.note && !match.note.includes('比赛取消') && <small className="assignment-note">{match.note.replace(/\s/g, '')}</small>}</div></td>
             </tr>;
           })}</tbody>
         </table>
       </section> : <EmptyState icon={<SearchX />} title="没有符合条件的比赛" description="试试切换周次、赛制、赛事或场地筛选。" />}
-      <p className="data-footnote">数据更新至 {new Date(data!.updatedAt || data!.meta.importedAt).toLocaleDateString('zh-CN')} · 未取消比赛的空缺岗位将显示为“待选派”</p>
+      <p className="data-footnote">数据更新至 {new Date(data!.updatedAt || data!.meta.importedAt).toLocaleDateString('zh-CN')} · 未选派的裁判岗位留空</p>
     </div>
   );
 }

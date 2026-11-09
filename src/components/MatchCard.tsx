@@ -31,7 +31,7 @@ export default function MatchCard({ match }: { match: Match }) {
         {match.officials.map((official, index) => (
           <div className="official" key={`${official.role}-${index}`}>
             <span>{roleName(official.role)}</span>
-            <strong className={!official.name ? 'pending-name' : ''}>{official.name || '待选派'}{official.substitute && <small className="substitute-mark">临替 +¥10</small>}</strong>
+            <strong>{official.name || ''}{official.name && official.substitute && <small className="substitute-mark">临替 +¥10</small>}</strong>
           </div>
         ))}
       </div>}
