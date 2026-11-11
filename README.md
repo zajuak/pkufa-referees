@@ -4,6 +4,8 @@
 
 首页保留每周裁判选派表。GitHub Pages 提供网站，用户自己的 Cloudflare Workers + D1 保存业务数据。
 
+校内服务器副本：[裁判网站](http://10.129.83.25:8081/) · [管理员入口](http://10.129.83.25:8081/#/admin)。页面部署在服务器，浏览器直接访问同一个云端 API，两处共用实时数据、管理员账号和历史版本；服务器不保存另一套业务库。此内网地址需在能访问该服务器的网络中使用。
+
 - **公开访问**：每周赛程、裁判选派、赛事/周次/场地/姓名筛选、选派表和个人日历导出、管理办法。
 - **裁判员查询**：无需密码，直接按姓名查询积分、工资、执裁与奖惩明细。
 - **管理后台**：维护裁判档案、选派、工资标准和奖惩；Excel 导入导出；冲突检查、整日请假、工作总览、自动版本备份及恢复。
@@ -70,3 +72,16 @@ npx wrangler deploy --config cloudflare/wrangler.jsonc
 上线数据库已导入原站数据。后续部署不清空或覆盖云端记录；空库首次读取才使用示例种子。每次业务保存原子新增快照，旧版本提交返回 409。恢复前后完整版本均保留，账号凭据独立保存，恢复业务备份不会还原旧密码。
 
 `tests/` 使用合成数据验证积分、Excel 导出、公开查询与原有个人权限、密码签名、过期、重置撤销和登录限流；真实原始表格的核对测试保留在部署者本机，不上传本仓库。
+
+## 校内服务器部署
+
+根路径版本使用独立输出目录，不改 GitHub Pages 构建：
+
+```sh
+VITE_GITHUB_PAGES=true VITE_BASE_PATH=/ VITE_API_BASE=https://pkufa-referees-api.junkaizhao404.workers.dev npm run build:campus
+node server/static.mjs
+```
+
+服务器上使用 `/opt/pkufa-referees/releases/<版本>/` 保存 `campus-dist/` 和 `server/static.mjs`，`current` 链接指向当前版本；独立 Node 运行时位于 `/opt/pkufa-referees/runtime/`。`deploy/pkufa-referees.service` 提供开机启动和失败重启，监听 8081，不占用现有积分榜的 8080。`/health` 返回网站发布版本；更新后通过 `systemctl restart pkufa-referees` 生效，回退时把 `current` 指向保留的旧版本后重启。
+
+云端 API 的 `ALLOWED_ORIGIN` 同时保留 GitHub Pages 和校内服务器地址。修改服务器访问地址后需要同步更新此白名单并发布 Worker；无需向服务器复制管理员密码、云端 Secret 或业务数据。

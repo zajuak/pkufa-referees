@@ -1,0 +1,23 @@
+[Unit]
+Description=PKUFA referee management website (shared cloud data)
+After=network.target
+
+[Service]
+Type=simple
+User=pkufa-referees
+Group=pkufa-referees
+WorkingDirectory=/opt/pkufa-referees/current
+Environment=HOST=0.0.0.0
+Environment=PORT=8081
+Environment=STATIC_DIR=/opt/pkufa-referees/current/campus-dist
+EnvironmentFile=-/etc/pkufa-referees-release.env
+ExecStart=/opt/pkufa-referees/runtime/bin/node /opt/pkufa-referees/current/server/static.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

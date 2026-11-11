@@ -2,6 +2,7 @@ node_modules/
 dist/
 api-dist/
 pages-dist/
+campus-dist/
 .wrangler/
 .private/
 .env*

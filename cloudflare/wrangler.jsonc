@@ -7,6 +7,6 @@
   "workers_dev": true,
   "preview_urls": false,
   "d1_databases": [{ "binding": "DB", "database_name": "pkufa-referees", "database_id": "830eec70-6053-49a0-8860-8e3e060bfa60", "migrations_dir": "../drizzle" }],
-  "vars": { "ALLOWED_ORIGIN": "https://zajuak.github.io", "PUBLIC_QUERIES": "true" },
+  "vars": { "ALLOWED_ORIGIN": "https://zajuak.github.io,http://10.129.83.25:8081", "PUBLIC_QUERIES": "true" },
   "observability": { "enabled": true }
 }
