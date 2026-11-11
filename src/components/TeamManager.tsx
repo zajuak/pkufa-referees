@@ -54,7 +54,7 @@ export default function TeamManager() {
   };
   return (
     <>
-      <AvoidanceManager />
+      <AvoidanceManager mode="colleges" />
       <section className="admin-section" aria-busy={busy}>
         <div className="admin-section-heading"><div><h2>球队、学院与球衣</h2><p>同一球队可在不同赛事绑定不同学院和默认球衣颜色。保存后，比赛表单中选择球队会自动带入默认颜色；历史比赛不追溯改色。</p></div></div>
         <label className="team-event-field">球队所属赛事<select aria-label="球队所属赛事" value={event} onChange={(e) => { setEvent(e.target.value as CompetitionEvent); setName(''); setColleges([]); setMessage(''); }}>{competitionEvents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
@@ -66,7 +66,7 @@ export default function TeamManager() {
           <fieldset className="bonus-checks college-options">
             <legend>绑定学院（可多选）</legend>
             {registeredColleges.map((college) => <label key={college}><input type="checkbox" aria-label={`球队学院${college}`} checked={colleges.includes(college)} disabled={busy} onChange={(e) => setColleges((current) => e.target.checked ? [...current, college] : current.filter((item) => item !== college))} />{college}</label>)}
-            {!registeredColleges.length && <p className="college-empty-hint">尚未登记学院，请先使用上方“学院名录与裁判回避”添加。</p>}
+            {!registeredColleges.length && <p className="college-empty-hint">尚未登记学院，请先使用上方“学院名录”添加。</p>}
           </fieldset>
           <div className="form-actions"><button className="button primary" disabled={busy}>{busy ? '保存中…' : '保存球队、学院与球衣绑定'}</button></div>
         </form>

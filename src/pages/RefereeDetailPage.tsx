@@ -33,7 +33,7 @@ export default function RefereeDetailPage() {
   return (
     <div className="page referee-detail-page">
       <Link to="/referees" className="back-link"><ArrowLeft size={17} />返回裁判员列表</Link>
-      <PageHeader eyebrow="REFEREE PROFILE" title={referee.name} description="个人裁判档案 · 当前积分与各赛季工资独立核算" actions={<div className="profile-badges">{channels.map((item) => <ChannelBadge key={item} channel={item} />)}</div>} />
+      <PageHeader eyebrow="REFEREE PROFILE" title={referee.name} description={referee.avoidanceColleges?.length ? `回避：${referee.avoidanceColleges.join('、')}` : ''} actions={<div className="profile-badges">{channels.map((item) => <ChannelBadge key={item} channel={item} />)}</div>} />
       <div className="detail-toolbar">
         <div className="segmented channel-tabs" role="group" aria-label="选择裁判渠道">{channels.map((item) => <button key={item} className={activeChannel === item ? 'active' : ''} onClick={() => { setChannel(item); setSelectedEvent('all'); }}>{channelName(item)}</button>)}</div>
         <label className="season-select"><span>工资赛季</span><select value={season} onChange={(event) => { setSeason(event.target.value); setSelectedEvent('all'); }}>{seasons.map((item) => <option key={item} value={item}>{item}{item === CURRENT_SEASON ? ' · 本赛季' : ' · 历史赛季'}</option>)}</select></label>

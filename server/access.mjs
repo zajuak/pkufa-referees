@@ -5,7 +5,7 @@ export function readableStore(store, auth) {
   if (role === 'admin') return { ...store, access: { role } };
   const financialQueries = auth.publicQueries || role === 'referee';
   const referees = financialQueries ? store.referees.filter((r) => auth.publicQueries || r.id === auth.refereeId).map((r) => ({
-    id: r.id, name: r.name,
+    id: r.id, name: r.name, avoidanceColleges: r.avoidanceColleges || [],
     channels: Object.fromEntries(Object.entries(r.channels).map(([channel, stats]) => [channel, Object.fromEntries(['basePoints', 'baseLevel', 'levelOverride', 'previousWage', 'historical'].filter((key) => stats[key] !== undefined).map((key) => [key, stats[key]]))])),
   })) : [];
   return {

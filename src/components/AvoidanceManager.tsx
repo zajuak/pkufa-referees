@@ -5,7 +5,7 @@ import type { Referee } from '../domain/types';
 const normalizeCollegeName = (value: string) => value.normalize('NFKC').trim().replace(/\s+/g, ' ');
 const normalizeSearch = (value: string) => value.normalize('NFKC').replace(/\s/g, '').toLocaleLowerCase();
 
-export default function AvoidanceManager() {
+export default function AvoidanceManager({ mode = 'all' }: { mode?: 'all' | 'colleges' | 'referees' }) {
   const { data, refresh } = useData();
   const [collegeName, setCollegeName] = useState('');
   const [query, setQuery] = useState('');
@@ -101,15 +101,14 @@ export default function AvoidanceManager() {
   return (
     <section className="admin-section avoidance-manager" aria-busy={Boolean(busy)}>
       <div className="admin-section-heading">
-        <div><h2>学院名录与裁判回避</h2><p>登记学院后，可设置每位裁判需要回避的学院，并供下方球队绑定使用。</p></div>
+        <div><h2>{mode === 'colleges' ? '学院名录' : mode === 'referees' ? '裁判回避设置' : '学院名录与裁判回避'}</h2><p>{mode === 'referees' ? '为每位裁判选择需要回避的学院；新增学院请在“球队与球衣”的学院名录中登记。' : '登记学院后，可用于球队归属绑定及裁判员档案中的回避设置。'}</p></div>
       </div>
-      <form className="admin-form college-add-form" onSubmit={(event) => void addCollege(event)}>
+      {mode !== 'referees' && <><form className="admin-form college-add-form" onSubmit={(event) => void addCollege(event)}>
         <div className="form-grid two-cols">
           <label>学院名称<input aria-label="新学院名称" required maxLength={40} value={collegeName} onChange={(event) => setCollegeName(event.target.value)} placeholder="输入学院全称" /></label>
           <div className="form-actions"><button className="button primary" disabled={Boolean(busy)}>{busy === 'add' ? '添加中…' : '添加学院'}</button></div>
         </div>
       </form>
-      {message && <p className={error ? 'form-error' : 'form-message'} role={error ? 'alert' : 'status'}>{message}</p>}
       <div className="college-list" aria-label="已登记学院">
         {colleges.map((college) => (
           <div className="operation-row college-row" key={college}>
@@ -119,7 +118,9 @@ export default function AvoidanceManager() {
         ))}
         {!colleges.length && <p className="inline-empty college-empty">尚未登记学院，请先添加。</p>}
       </div>
-      <div className="avoidance-referee-tools">
+      </>}
+      {message && <p className={error ? 'form-error' : 'form-message'} role={error ? 'alert' : 'status'}>{message}</p>}
+      {mode !== 'colleges' && <><div className="avoidance-referee-tools">
         <h3>裁判回避设置</h3>
         <div className="admin-list-tools avoidance-search">
           <input aria-label="搜索回避裁判" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="搜索裁判员姓名" />
@@ -147,6 +148,7 @@ export default function AvoidanceManager() {
         {!visibleReferees.length && <p className="inline-empty">没有匹配的裁判员。</p>}
       </div>
       {pagination('底部')}
+      </>}
     </section>
   );
 }

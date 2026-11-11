@@ -7,6 +7,7 @@ import type { Adjustment, Channel, CompetitionEvent, Level, Match, RuleBlock, Ru
 import { ChannelBadge, PageHeader, StatusBadge } from '../components/ui';
 import AdminMatchForm from '../components/AdminMatchForm';
 import TeamManager from '../components/TeamManager';
+import AvoidanceManager from '../components/AvoidanceManager';
 import TournamentManager from '../components/TournamentManager';
 import OverviewPage from './OverviewPage';
 import OperationsManager from '../components/OperationsManager';
@@ -56,7 +57,7 @@ function AdminWorkspace() {
       {tab === 'tournament' && <TournamentManager />}
       {tab === 'adjustments' && <AdjustmentManager />}
       {tab === 'wages' && <WageManager />}
-      {tab === 'referees' && <RefereeManager />}
+      {tab === 'referees' && <RefereeWorkspace />}
       {tab === 'rules' && <RulesManager />}
       {tab === 'operations' && <OperationsManager />}
       {tab === 'overview' && <OverviewPage />}
@@ -190,6 +191,14 @@ function RulesManager() {
       <div className="form-actions"><button className="button primary" disabled={saving} onClick={() => void save()}><Save size={16} />保存管理办法</button></div>
     </section>
   );
+}
+
+function RefereeWorkspace() {
+  const [section, setSection] = useState<'profiles' | 'avoidance'>('profiles');
+  return <><div className="segmented" role="group" aria-label="裁判员档案功能" style={{ marginBottom: 20 }}>
+    <button className={section === 'profiles' ? 'active' : ''} onClick={() => setSection('profiles')}>档案与等级</button>
+    <button className={section === 'avoidance' ? 'active' : ''} onClick={() => setSection('avoidance')}>回避设置</button>
+  </div>{section === 'profiles' ? <RefereeManager /> : <AvoidanceManager mode="referees" />}</>;
 }
 
 function RefereeManager() {

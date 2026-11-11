@@ -10,7 +10,7 @@ const person = (id: string) => ({ id, name: `测试裁判${id}`, channels: { ele
 const store: DataStore = { version: 1, revision: 0, meta: { association: '测试', season: '2026–27', rulesVersion: '测试', importedAt: '2026-11-06T00:00:00Z', sourceFiles: ['private.xlsx'], counts: { elevenMatches: 0, fiveMatches: 0, cancelledMatches: 0 } }, referees: [person('r1'), person('r2')], matches: [], adjustments: [{ id: 'a', refereeId: 'r2', channel: 'eleven', season: '2026–27', date: '2026-11-06', type: 'reward', points: 1, wage: 111, reason: '私密奖惩' }], unavailability: [{ id: 'l', refereeId: 'r2', start: '2026-12-01', end: '2026-12-01', reason: '私密请假' }] };
 
 describe('公开赛程与裁判个人查询权限', () => {
-  it('首页公开每场所需回避学院的汇总，仍不公开裁判个人绑定', () => {
+  it('首页公开每场回避汇总，个人回避按裁判查询权限提供', () => {
     const source = structuredClone(store);
     source.referees[0].avoidanceColleges = ['仅个人绑定'];
     source.teams = [{ event: 'freshmen-cup', name: '甲队', color: '#FFFFFF', colleges: ['甲学院'] }, { event: 'freshmen-cup', name: '乙队', color: '#FFFFFF', colleges: ['甲学院', '乙学院'] }];
@@ -18,6 +18,7 @@ describe('公开赛程与裁判个人查询权限', () => {
     const result = readableStore(source, { authenticated: false });
     expect(result.matches[0].avoidanceSummary).toEqual({ colleges: ['甲学院', '乙学院'], complete: true });
     expect(result.referees).toEqual([]); expect(JSON.stringify(result)).not.toContain('仅个人绑定');
+    expect(readableStore(source, { authenticated: false, publicQueries: true }).referees[0].avoidanceColleges).toEqual(['仅个人绑定']);
     source.teams.pop();
     expect(readableStore(source, { authenticated: false }).matches[0].avoidanceSummary).toEqual({ colleges: ['甲学院'], complete: false });
   });
