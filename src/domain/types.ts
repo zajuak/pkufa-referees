@@ -68,6 +68,8 @@ export interface Match {
   bonuses: Bonus[];
   officials: Official[];
   additionalAssistants?: boolean;
+  /** Read-only summary provided to public schedule clients. */
+  avoidanceSummary?: { colleges: string[]; complete: boolean };
 }
 
 export interface Adjustment {

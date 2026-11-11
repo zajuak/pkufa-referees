@@ -100,17 +100,20 @@ select { padding: 8px 28px 8px 10px; }
 .schedule-heading > span { color: var(--muted); font-size: 11px; }
 .assignment-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: white; box-shadow: var(--shadow); }
 .assignment-table { min-width: 1100px; table-layout: fixed; background: white; }
-.assignment-table th:nth-child(1), .assignment-table td:nth-child(1) { width: 9%; }
-.assignment-table th:nth-child(2), .assignment-table td:nth-child(2) { width: 9%; }
-.assignment-table th:nth-child(3), .assignment-table td:nth-child(3) { width: 10%; }
-.assignment-table th:nth-child(4), .assignment-table td:nth-child(4) { width: 5%; }
-.assignment-table th:nth-child(5), .assignment-table td:nth-child(5) { width: 7%; }
-.assignment-table th:nth-child(6), .assignment-table td:nth-child(6) { width: 15%; }
+.assignment-table th:nth-child(1), .assignment-table td:nth-child(1) { width: 8%; }
+.assignment-table th:nth-child(2), .assignment-table td:nth-child(2) { width: 8%; }
+.assignment-table th:nth-child(3), .assignment-table td:nth-child(3) { width: 9%; }
+.assignment-table th:nth-child(4), .assignment-table td:nth-child(4) { width: 4%; }
+.assignment-table th:nth-child(5), .assignment-table td:nth-child(5) { width: 6%; }
+.assignment-table th:nth-child(6), .assignment-table td:nth-child(6) { width: 13%; }
 .assignment-table th:nth-child(7), .assignment-table td:nth-child(7),
 .assignment-table th:nth-child(8), .assignment-table td:nth-child(8),
 .assignment-table th:nth-child(9), .assignment-table td:nth-child(9),
-.assignment-table th:nth-child(10), .assignment-table td:nth-child(10) { width: 8%; }
-.assignment-table th:nth-child(11), .assignment-table td:nth-child(11) { width: 13%; }
+.assignment-table th:nth-child(10), .assignment-table td:nth-child(10) { width: 7%; }
+.assignment-table th:nth-child(11), .assignment-table td:nth-child(11) { width: 10%; }
+.assignment-table .assignment-avoidance-cell { width: 14%; }
+.assignment-avoidance { min-width: 0; overflow-wrap: anywhere; font-size: 11px; line-height: 1.6; }
+.assignment-avoidance small { display: block; color: var(--amber); font-size: 10px; margin-top: 4px; }
 .assignment-table th { padding: 13px 11px; color: #766e71; border-right: 1px solid #ece7e3; border-bottom: 1px solid var(--line); background: #f5f1ed; font-size: 11px; font-weight: 600; text-align: center; white-space: normal; }
 .assignment-table td { padding: 15px 8px; border-right: 1px solid #f0ece9; border-bottom: 1px solid #ebe6e2; font-size: 12px; text-align: center; vertical-align: middle; }
 .assignment-table th:last-child, .assignment-table td:last-child { border-right: 0; }
@@ -130,6 +133,9 @@ select { padding: 8px 28px 8px 10px; }
 .jersey-color { display: inline-block; flex: 0 0 auto; width: 13px; height: 13px; border: 1px solid rgb(0 0 0 / 20%); border-radius: 3px; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 18%); }
 .assignment-official { display: inline-flex; align-items: center; justify-content: center; gap: 5px; max-width: 100%; font-size: 14px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
 .assignment-official.pending { color: #b18034; font-size: 12px; font-weight: 500; }
+.avoidance-pagination { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.avoidance-pagination label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.avoidance-pagination select { width: auto; min-width: 52px; padding: 7px 10px; }
 .assignment-official small { padding: 1px 4px; color: #94651f; border-radius: 3px; background: var(--amber-soft); font-size: 7px; font-weight: 500; }
 .assignment-table .channel-badge, .assignment-table .status-badge { font-size: 10px; }
 .assignment-note { display: block; max-width: 150px; margin: 6px auto 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
@@ -616,3 +622,6 @@ table { width: 100%; border-collapse: collapse; }
 
 .avoidance-manager{margin-bottom:18px}.college-add-form .form-actions{align-items:flex-end;margin-top:0}.college-list{display:flex;flex-wrap:wrap;gap:8px}.college-row{width:auto;min-width:180px;padding:9px 12px;border:1px solid var(--line);border-radius:8px}.college-row .button{padding:5px 9px}.avoidance-referee-tools{margin-top:24px}.avoidance-referee-row{align-items:flex-start;flex-wrap:wrap}.avoidance-referee-row>div{flex:0 0 170px}.avoidance-college-options{flex:1;min-width:260px;margin:0}.avoidance-college-options input,.college-options input{width:auto}.form-warning{margin:12px 0;padding:12px 14px;color:#8a5b12;border:1px solid #ead9b9;border-radius:8px;background:#fffcf6;font-size:11px}.form-warning p{margin:6px 0;line-height:1.6}.advancement-fields,.result-fields{margin:0 0 16px;padding:14px;border:1px solid var(--line);border-radius:9px}.advancement-fields legend,.result-fields legend{padding:0 6px;color:var(--muted);font-size:11px}.advancement-slot{padding:10px 0;border-bottom:1px solid var(--line)}.advancement-slot:last-child{border-bottom:0}.advancement-preview{margin:0;color:var(--green);font-size:12px}.score-inputs{display:flex;align-items:end;gap:10px;flex-wrap:wrap}.score-inputs label{width:110px}.score-inputs>span{padding-bottom:10px;color:var(--muted)}.official-avoidance-issue{grid-column:2/-1;margin:0;color:#a33b3b;font-size:11px;line-height:1.6}.avoidance-warning-row{background:#fffcf6;color:#8a5b12}.tournament-filters select,.standing-order select{padding:9px}.standing-table-wrap{overflow-x:auto}.standing-table{min-width:720px}.standing-table td:first-child small{display:block}.standing-tied{background:#fffcf6}.standing-tie-mark,.standing-tied-with{color:var(--amber)}.standing-missing{color:var(--amber)}.standing-order,.bracket-overview{margin-top:26px}.standing-order-list{padding:0;list-style:none}.standing-order-position{display:grid;place-items:center;width:30px;height:30px;color:var(--red);border-radius:50%;background:var(--red-soft);font-weight:700}.standing-order-actions{display:flex;gap:7px}.standing-order-button{padding:7px 10px}.bracket-list{display:grid;gap:14px}.bracket-match{padding:14px;border:1px solid var(--line);border-radius:10px}.bracket-teams{display:grid;grid-template-columns:1fr 1fr;gap:12px}.bracket-slot{padding:14px;border-radius:8px;background:#faf8f6}.bracket-slot>span,.bracket-slot>strong,.bracket-slot>small{display:block}.bracket-slot>strong{margin:6px 0;font-size:15px}.bracket-source,.bracket-candidates{color:var(--muted);font-size:11px;line-height:1.6}.bracket-result{font-weight:600}.bracket-warnings{padding:10px;color:#8a5b12;background:#fffcf6;font-size:11px}.bracket-warnings p{margin:4px 0}
 @media(max-width:640px){.avoidance-referee-row>div{flex-basis:100%}.avoidance-college-options{min-width:100%}.score-inputs label{width:calc(50% - 22px)}.bracket-teams{grid-template-columns:1fr}.standing-order-actions{flex-wrap:wrap}.standing-order-row>span.standing-order-actions{display:flex}.bracket-match-heading{flex-wrap:wrap}.college-add-form .form-actions{align-items:flex-start}.official-avoidance-issue{grid-column:1/-1}}
+
+@media(min-width:1101px){.assignment-table.with-additional{min-width:1320px}.assignment-table.with-additional .assignment-avoidance-cell{width:14%!important}.assignment-table.with-additional th:nth-last-child(2),.assignment-table.with-additional td:nth-last-child(2){width:9%!important}}
+@media(max-width:1100px){.assignment-table .assignment-avoidance-cell{grid-column:1/-1}.assignment-avoidance{max-width:70%;text-align:right}.assignment-table.with-additional{min-width:0}.assignment-table.with-additional td:nth-child(n),.assignment-table.with-additional th:nth-child(n){width:auto!important}}

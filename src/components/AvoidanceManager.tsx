@@ -9,6 +9,7 @@ export default function AvoidanceManager() {
   const { data, refresh } = useData();
   const [collegeName, setCollegeName] = useState('');
   const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
   const [drafts, setDrafts] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
@@ -17,7 +18,16 @@ export default function AvoidanceManager() {
   const filteredReferees = [...data!.referees]
     .filter((referee) => normalizeSearch(referee.name).includes(normalizeSearch(query.trim())))
     .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
-  const visibleReferees = filteredReferees.slice(0, 30);
+  const pageSize = 30;
+  const pageCount = Math.max(1, Math.ceil(filteredReferees.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const start = (currentPage - 1) * pageSize;
+  const visibleReferees = filteredReferees.slice(start, start + pageSize);
+  const pagination = (position: '顶部' | '底部') => <nav className="avoidance-pagination" aria-label={`裁判回避分页（${position}）`}>
+    <button type="button" className="button secondary" disabled={Boolean(busy) || currentPage === 1} onClick={() => setPage(currentPage - 1)}>上一页</button>
+    <label>第 <select aria-label={`回避裁判页码（${position}）`} value={currentPage} disabled={Boolean(busy) || !filteredReferees.length} onChange={(event) => setPage(Number(event.target.value))}>{Array.from({ length: pageCount }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select> / {pageCount} 页</label>
+    <button type="button" className="button secondary" disabled={Boolean(busy) || currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>下一页</button>
+  </nav>;
 
   const notify = (text: string, failed = false) => {
     setMessage(text);
@@ -112,9 +122,10 @@ export default function AvoidanceManager() {
       <div className="avoidance-referee-tools">
         <h3>裁判回避设置</h3>
         <div className="admin-list-tools avoidance-search">
-          <input aria-label="搜索回避裁判" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索裁判员姓名" />
-          <span role="status">共 {filteredReferees.length} 位裁判，显示 {visibleReferees.length} 位{filteredReferees.length > visibleReferees.length ? '，请搜索缩小范围' : ''}</span>
+          <input aria-label="搜索回避裁判" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="搜索裁判员姓名" />
+          <span role="status">共 {filteredReferees.length} 位裁判，显示第 {filteredReferees.length ? start + 1 : 0}—{start + visibleReferees.length} 位，每页 {pageSize} 位</span>
         </div>
+        {pagination('顶部')}
       </div>
       <div className="avoidance-referee-list">
         {visibleReferees.map((referee) => {
@@ -135,6 +146,7 @@ export default function AvoidanceManager() {
         })}
         {!visibleReferees.length && <p className="inline-empty">没有匹配的裁判员。</p>}
       </div>
+      {pagination('底部')}
     </section>
   );
 }

@@ -449,3 +449,8 @@ export function analyzeAvoidance(
   }
   return { issues: [...issues], warnings: [...warnings] };
 }
+
+export function matchAvoidanceSummary(match: Match, matches: Match[], teams: Team[] = [], groupOrders: GroupOrder[] = []) {
+  const related = avoidanceTeams(match, matches, teams, groupOrders);
+  return { colleges: uniqueNames(related.items.flatMap((item) => item.colleges)), complete: match.status === 'cancelled' || (related.items.length > 0 && related.warnings.length === 0) };
+}

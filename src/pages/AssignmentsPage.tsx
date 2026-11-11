@@ -10,6 +10,7 @@ import { matchStageLabel } from '../domain/stages';
 import { seasonWeekRange } from '../domain/weeks';
 import { exportAssignments, exportCalendar } from '../domain/downloads';
 import { additionalAssistantRoles, usesAdditionalAssistants } from '../domain/scheduling';
+import { matchAvoidanceSummary } from '../domain/avoidance';
 import type { Channel, Role } from '../domain/types';
 
 const assignmentRoles: Record<Channel, Role[]> = {
@@ -40,6 +41,7 @@ export default function AssignmentsPage() {
     .filter((match) => `${match.home} ${match.away} ${match.officials.map((o) => o.name).join(' ')}`.includes(query.trim()))
     .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time)), [categoryMatches, week, venue, query, statusFilter]);
   const showAdditional = filtered.some((match) => match.status !== 'cancelled' && usesAdditionalAssistants(match));
+  const avoidanceSummaries = useMemo(() => new Map(data!.matches.map((match) => [match.id, match.avoidanceSummary || matchAvoidanceSummary(match, data!.matches, data!.teams || [], data!.groupOrders || [])])), [data]);
   const roleLabels = ['主裁判 / 第一裁判', '第一助理 / 第二裁判', '第二助理 / 第三裁判', ...(showAdditional ? ['第一附加助理', '第二附加助理'] : []), '第四官员'];
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -74,9 +76,10 @@ export default function AssignmentsPage() {
       <div className="schedule-heading"><div><CalendarCheck size={20} /><h2>{week === 'all' ? '全部赛程' : `第 ${week} 周赛程`}</h2></div><span>共 {filtered.length} 场比赛 · 按时间正序</span></div>
       {filtered.length ? <section className="assignment-table-wrap">
         <table className={showAdditional ? 'assignment-table with-additional' : 'assignment-table'}>
-          <thead><tr><th>日期</th><th>时间</th><th>赛制 / 赛事</th><th>场地</th><th>组别 / 阶段</th><th>对阵</th>{roleLabels.map((label) => <th key={label}>{label}</th>)}<th>状态 / 备注</th></tr></thead>
+          <thead><tr><th>日期</th><th>时间</th><th>赛制 / 赛事</th><th>场地</th><th>组别 / 阶段</th><th>对阵</th>{roleLabels.map((label) => <th key={label}>{label}</th>)}<th>状态 / 备注</th><th className="assignment-avoidance-cell">回避</th></tr></thead>
           <tbody>{filtered.map((match) => {
             const status = effectiveMatchStatus(match);
+            const avoidance = avoidanceSummaries.get(match.id)!;
             return <tr className={status} key={match.id}>
               <td data-label="日期"><div className="assignment-date"><strong>{formatDate(match.date)}</strong><small>第 {match.week} 周</small></div></td>
               <td className="assignment-time" data-label="时间">{match.time || '时间待定'}</td>
@@ -93,11 +96,12 @@ export default function AssignmentsPage() {
                 return <td className="assignment-official-cell" key={column} data-label={label}>{isFiveFourth ? '-' : role && status !== 'cancelled' && official?.name ? <span className="assignment-official">{official.name}{official.substitute && <small>临替</small>}</span> : null}</td>;
               })}
               <td data-label="状态 / 备注"><div className="assignment-status"><StatusBadge status={status} />{status !== 'cancelled' && automaticTimeBonuses(match).length > 0 && <small className="auto-time-labels">{automaticTimeBonuses(match).map((bonus) => timeBonusLabels[bonus]).join(' · ')}</small>}{match.note && !match.note.includes('比赛取消') && <small className="assignment-note">{match.note.replace(/\s/g, '')}</small>}</div></td>
+              <td className="assignment-avoidance-cell" data-label="回避">{status !== 'cancelled' && <div className="assignment-avoidance"><span>{avoidance.colleges.length ? avoidance.colleges.join('、') : '待设置'}</span>{!avoidance.complete && avoidance.colleges.length > 0 && <small>资料不全</small>}</div>}</td>
             </tr>;
           })}</tbody>
         </table>
       </section> : <EmptyState icon={<SearchX />} title="没有符合条件的比赛" description="试试切换周次、赛制、赛事或场地筛选。" />}
-      <p className="data-footnote">数据更新至 {new Date(data!.updatedAt || data!.meta.importedAt).toLocaleDateString('zh-CN')} · 未选派的裁判岗位留空</p>
+      <p className="data-footnote">数据更新至 {new Date(data!.updatedAt || data!.meta.importedAt).toLocaleDateString('zh-CN')} · 未选派的裁判岗位留空；回避学院按分组及晋级关系汇总，“待设置”或“资料不全”表示尚不能完整判定。</p>
     </div>
   );
 }
