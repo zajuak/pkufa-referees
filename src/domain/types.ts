@@ -68,6 +68,8 @@ export interface Match {
   bonuses: Bonus[];
   officials: Official[];
   additionalAssistants?: boolean;
+  /** Absent means automatic; supplement adds colleges, replace specifies the full list. */
+  avoidanceOverride?: { mode: 'supplement' | 'replace'; colleges: string[] };
   /** Read-only summary provided to public schedule clients. */
   avoidanceSummary?: { colleges: string[]; complete: boolean };
 }

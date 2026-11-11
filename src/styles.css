@@ -358,6 +358,8 @@ table { width: 100%; border-collapse: collapse; }
 .color-input span { color: var(--muted); font-size: 10px; }
 .color-input button { margin-left: auto; padding: 4px; border: 0; color: var(--red); background: transparent; font-size: 10px; cursor: pointer; }
 .official-fields, .bonus-checks { margin: 0 0 14px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; }
+.match-avoidance-options { max-height: 240px; overflow-y: auto; gap: 12px 20px; }
+.match-avoidance-settings .advancement-preview { line-height: 1.7; overflow-wrap: anywhere; }
 .official-fields legend, .bonus-checks legend { padding: 0 6px; color: #716a6d; font-size: 10px; }
 .official-input { display: grid; grid-template-columns: 80px minmax(250px, 390px) 1fr; align-items: center; gap: 12px; margin: 8px 0; }
 .official-input > span { font-size: 10px; }

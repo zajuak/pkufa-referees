@@ -96,12 +96,12 @@ export default function AssignmentsPage() {
                 return <td className="assignment-official-cell" key={column} data-label={label}>{isFiveFourth ? '-' : role && status !== 'cancelled' && official?.name ? <span className="assignment-official">{official.name}{official.substitute && <small>临替</small>}</span> : null}</td>;
               })}
               <td data-label="状态 / 备注"><div className="assignment-status"><StatusBadge status={status} />{status !== 'cancelled' && automaticTimeBonuses(match).length > 0 && <small className="auto-time-labels">{automaticTimeBonuses(match).map((bonus) => timeBonusLabels[bonus]).join(' · ')}</small>}{match.note && !match.note.includes('比赛取消') && <small className="assignment-note">{match.note.replace(/\s/g, '')}</small>}</div></td>
-              <td className="assignment-avoidance-cell" data-label="回避">{status !== 'cancelled' && <div className="assignment-avoidance"><span>{avoidance.colleges.length ? avoidance.colleges.join('、') : '待设置'}</span>{!avoidance.complete && avoidance.colleges.length > 0 && <small>资料不全</small>}</div>}</td>
+              <td className="assignment-avoidance-cell" data-label="回避">{status !== 'cancelled' && <div className="assignment-avoidance"><span>{avoidance.colleges.length ? avoidance.colleges.join('、') : avoidance.complete ? '无' : '待设置'}</span>{!avoidance.complete && avoidance.colleges.length > 0 && <small>资料不全</small>}</div>}</td>
             </tr>;
           })}</tbody>
         </table>
       </section> : <EmptyState icon={<SearchX />} title="没有符合条件的比赛" description="试试切换周次、赛制、赛事或场地筛选。" />}
-      <p className="data-footnote">数据更新至 {new Date(data!.updatedAt || data!.meta.importedAt).toLocaleDateString('zh-CN')} · 未选派的裁判岗位留空；回避学院按分组及晋级关系汇总，“待设置”或“资料不全”表示尚不能完整判定。</p>
+      <p className="data-footnote">数据更新至 {new Date(data!.updatedAt || data!.meta.importedAt).toLocaleDateString('zh-CN')} · 未选派的裁判岗位留空；回避学院按本场设置或分组及晋级关系汇总，“待设置”或“资料不全”表示尚不能完整判定。</p>
     </div>
   );
 }

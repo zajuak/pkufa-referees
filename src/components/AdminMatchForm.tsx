@@ -4,7 +4,7 @@ import { api, useData } from '../hooks/useData';
 import { availableSeasons, CURRENT_SEASON, roleName } from '../domain/calculations';
 import { defaultCompetition, eventsForChannel, getMatchEvent } from '../domain/competitions';
 import { assignmentAnalysis, matchRoles, requiredRoles, usesAdditionalAssistants } from '../domain/scheduling';
-import { applyAdvancement, resolveMatchTeams } from '../domain/avoidance';
+import { applyAdvancement, matchAvoidanceSummary, resolveMatchTeams } from '../domain/avoidance';
 import { automaticTimeBonuses, matchBonuses, timeBonusKinds, timeBonusLabels } from '../domain/time-bonuses';
 import { allowedStages, stageOptions, stageLabel } from '../domain/stages';
 import { matchWeek } from '../domain/weeks';
@@ -60,6 +60,8 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
   const issues = [...analysis.issues, ...scoreErrors];
   const warnings = analysis.warnings;
   const resolvedTeams = resolveMatchTeams(resolvedMatch, prospectiveMatches, data!.groupOrders || []);
+  const avoidance = matchAvoidanceSummary(resolvedMatch, prospectiveMatches, data!.teams || [], data!.groupOrders || []);
+  const automaticAvoidance = matchAvoidanceSummary({ ...resolvedMatch, avoidanceOverride: undefined }, prospectiveMatches, data!.teams || [], data!.groupOrders || []);
   const seasons = availableSeasons(data!.matches, data!.adjustments);
   const update = <K extends keyof Match>(key: K, value: Match[K]) => setForm((current) => ({ ...current, [key]: value }));
   const changeChannel = (channel: Channel) => setForm((current) => {
@@ -152,6 +154,15 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
       </div>
       <div className="form-grid two-cols"><label>联赛组别<select value={form.division || ''} onChange={(event) => update('division', (event.target.value || null) as Match['division'])}><option value="">不适用</option><option value="甲">甲组（北大杯工资 ×1.1）</option><option value="乙">乙组</option></select></label><label>比赛状态<select value={form.status} onChange={(event) => changeStatus(event.target.value as Match['status'])}><option value="scheduled">待进行（结束后自动完成）</option><option value="completed">手动标记已完成</option><option value="cancelled">已取消</option></select></label></div>
       {form.status === 'completed' && <fieldset className="result-fields"><legend>比赛结果</legend>{form.result && <button type="button" className="button secondary" onClick={() => update('result', undefined)}>清除赛果</button>}<p className="adjustment-help">比分可暂不录入；未录入不参与积分榜和晋级。小组赛胜 3、平 1、负 0，淘汰赛须有明确胜负。</p><div className="score-inputs"><label>主队比分<input aria-label="主队比分" type="number" required={Boolean(form.result)} min="0" step="1" value={form.result?.home ?? ''} onChange={(event) => updateScore('home', event.target.value)} /></label><span>:</span><label>客队比分<input aria-label="客队比分" type="number" required={Boolean(form.result)} min="0" step="1" value={form.result?.away ?? ''} onChange={(event) => updateScore('away', event.target.value)} /></label>{form.channel === 'eleven' && ['knockout', 'semifinal', 'final', 'third'].includes(form.stage) && form.result?.home === form.result?.away && <><span>点球</span><label>主队点球<input aria-label="主队点球" type="number" required min="0" step="1" value={form.result?.homePenalties ?? ''} onChange={(event) => updateScore('homePenalties', event.target.value)} /></label><span>:</span><label>客队点球<input aria-label="客队点球" type="number" required min="0" step="1" value={form.result?.awayPenalties ?? ''} onChange={(event) => updateScore('awayPenalties', event.target.value)} /></label></>}</div></fieldset>}
+      {form.status !== 'cancelled' && <fieldset className="advancement-fields match-avoidance-settings"><legend>本场回避</legend>
+        <label>回避计算方式<select aria-label="回避计算方式" value={form.avoidanceOverride?.mode || 'auto'} onChange={(event) => {
+          const mode = event.target.value as 'auto' | 'supplement' | 'replace';
+          update('avoidanceOverride', mode === 'auto' ? undefined : { mode, colleges: form.avoidanceOverride?.colleges || (mode === 'replace' ? automaticAvoidance.colleges : []) });
+        }}><option value="auto">自动计算</option><option value="supplement">自动计算并补充</option><option value="replace">手动指定完整名单</option></select></label>
+        <p className="adjustment-help">{!form.avoidanceOverride ? '根据球队学院、同组球队及下一轮候选对手自动计算。' : form.avoidanceOverride.mode === 'supplement' ? '勾选额外需要回避的学院，与自动名单合并；自动判定缺少资料时仍会提醒。' : '以下勾选作为本场完整回避名单，替代自动计算。请包含对阵双方及规则要求的其他学院；未勾选表示本场无回避学院。'}仅影响本场比赛。</p>
+        {form.avoidanceOverride && <div className="bonus-checks college-options match-avoidance-options" role="group" aria-label="本场回避学院">{(data!.colleges || []).map((college) => <label key={college}><input type="checkbox" aria-label={`本场回避${college}`} checked={form.avoidanceOverride!.colleges.includes(college)} onChange={(event) => update('avoidanceOverride', { ...form.avoidanceOverride!, colleges: event.target.checked ? [...form.avoidanceOverride!.colleges, college] : form.avoidanceOverride!.colleges.filter((item) => item !== college) })} />{college}</label>)}{!data!.colleges?.length && <p className="adjustment-help">请先在“球队与球衣”的学院名录中登记学院。</p>}</div>}
+        <p className="advancement-preview" aria-label="本场生效回避">本场生效回避：{avoidance.colleges.length ? avoidance.colleges.join('、') : avoidance.complete ? '无' : '待设置'}{!avoidance.complete && avoidance.colleges.length > 0 ? '（资料不全）' : ''}</p>
+      </fieldset>}
       {form.channel === 'eleven' && <fieldset className="additional-assistant-setting"><label><input type="checkbox" checked={Boolean(form.additionalAssistants)} onChange={(e) => changeAdditional(e.target.checked)} />需要附加助理裁判（2 人）</label><p>启用后增加两个岗位，工资、积分及半决赛/决赛补贴均与助理裁判相同。</p></fieldset>}
       {form.status !== 'cancelled' && ['semifinal', 'final'].includes(form.stage) && <p className="automatic-supplement" role="status">{form.stage === 'semifinal' ? '半决赛' : '决赛'}补贴自动计入工资：{form.channel === 'eleven' ? '主裁、助理及附加助理' : '第一、第二裁判'}每人 +{form.stage === 'semifinal' ? 10 : 20} 元，{form.channel === 'eleven' ? '第四官员' : '第三裁判'} +{form.stage === 'semifinal' ? 5 : 10} 元，无需再登记奖惩。</p>}
       {form.status === 'cancelled' ? <p className="inline-empty">比赛已取消，无需选派裁判。</p> : <fieldset className="official-fields"><legend>裁判选派</legend><p className="adjustment-help">输入姓名后在下拉框中选派；没有档案时可选择“新建并选派”，保存比赛时自动创建。已有其他赛制档案会直接补齐本赛制，不重复建档。</p>{form.officials.map((official, index) => {

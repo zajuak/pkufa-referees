@@ -15,8 +15,8 @@ export function normalizeCollegeName(value) {
   return cleanName(value);
 }
 
-export function normalizeColleges(input, registry) {
-  if (!Array.isArray(input) || input.length > 20) throw new Error('每项回避绑定最多选择 20 个学院');
+export function normalizeColleges(input, registry, limit = 20) {
+  if (!Array.isArray(input) || input.length > limit) throw new Error(`每项回避绑定最多选择 ${limit} 个学院`);
   const known = new Map((Array.isArray(registry) ? registry : []).map((name) => [nameKey(name), name]));
   const colleges = new Map();
   for (const value of input) {
@@ -29,10 +29,15 @@ export function normalizeColleges(input, registry) {
   return [...colleges.values()];
 }
 
-function validateCollegeBinding(input, registry, message) {
+function validateCollegeBinding(input, registry, message, limit = 20) {
   if (input === undefined) return;
-  const normalized = normalizeColleges(input, registry);
+  const normalized = normalizeColleges(input, registry, limit);
   if (normalized.length !== input.length || normalized.some((name, index) => name !== input[index])) throw new Error(message);
+}
+
+export function normalizeMatchAvoidance(input, registry) {
+  if (!input || typeof input !== 'object' || Array.isArray(input) || !['supplement', 'replace'].includes(input.mode)) throw new Error('本场回避设置格式不正确');
+  return { mode: input.mode, colleges: normalizeColleges(input.colleges, registry, 100) };
 }
 
 function cleanSource(source, side) {
@@ -167,6 +172,10 @@ export function validateSnapshot(input) {
   }
   const matchIds = new Set();
   for (const m of value.matches) {
+    if (m.avoidanceOverride !== undefined) {
+      normalizeMatchAvoidance(m.avoidanceOverride, colleges);
+      validateCollegeBinding(m.avoidanceOverride.colleges, colleges, '本场回避学院格式不正确', 100);
+    }
     if (!m.id || matchIds.has(m.id) || !date(m.date) || !['eleven', 'five'].includes(m.channel) || !['scheduled', 'completed', 'cancelled'].includes(m.status) || !Array.isArray(m.officials) || !Array.isArray(m.bonuses) || !finite(m.week) || !allowedStages(m.channel).includes(m.stage) || ['competition', 'time', 'venue', 'group', 'home', 'away', 'note'].some((k) => typeof m[k] !== 'string')) throw new Error('比赛记录格式有误');
     matchIds.add(m.id);
     if (m.additionalAssistants !== undefined && typeof m.additionalAssistants !== 'boolean') throw new Error('附加助理裁判设置不正确');

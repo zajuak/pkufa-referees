@@ -21,6 +21,10 @@ describe('公开赛程与裁判个人查询权限', () => {
     expect(readableStore(source, { authenticated: false, publicQueries: true }).referees[0].avoidanceColleges).toEqual(['仅个人绑定']);
     source.teams.pop();
     expect(readableStore(source, { authenticated: false }).matches[0].avoidanceSummary).toEqual({ colleges: ['甲学院'], complete: false });
+    source.matches[0].avoidanceOverride = { mode: 'replace', colleges: ['手动学院'] };
+    const manual = readableStore(source, { authenticated: false });
+    expect(manual.matches[0].avoidanceSummary).toEqual({ colleges: ['手动学院'], complete: true });
+    expect(manual.matches[0].avoidanceOverride).toBeUndefined();
   });
   it('匿名结果不含积分工资、来源文件、奖惩或请假', () => {
     const result = readableStore(store, { authenticated: false });

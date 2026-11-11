@@ -351,6 +351,10 @@ export function avoidanceTeams(
   groupOrders: GroupOrder[] = [],
 ): { items: AvoidanceItem[]; warnings: string[] } {
   if (match.status === 'cancelled') return { items: [], warnings: [] };
+  const manualItems = uniqueNames(match.avoidanceOverride?.colleges || []).map((college) => ({
+    name: '', colleges: [college], reason: match.avoidanceOverride?.mode === 'replace' ? '本场手动指定回避' : '本场补充回避',
+  }));
+  if (match.avoidanceOverride?.mode === 'replace') return { items: manualItems, warnings: [] };
   const allMatches = Array.isArray(matches) ? matches : [];
   const allTeams = Array.isArray(teams) ? teams : [];
   const items = new Map<string, AvoidanceItem>();
@@ -413,7 +417,7 @@ export function avoidanceTeams(
     if (!item.colleges.length) warnings.push(`球队“${item.name}”未绑定学院，无法完整检查回避`);
     return item;
   });
-  return { items: boundItems, warnings: unique(warnings) };
+  return { items: [...boundItems, ...manualItems], warnings: unique(warnings) };
 }
 
 export function analyzeAvoidance(
@@ -443,7 +447,7 @@ export function analyzeAvoidance(
     for (const college of uniqueNames(Array.isArray(referee.avoidanceColleges) ? referee.avoidanceColleges : [])) {
       for (const item of related.items) {
         if (!item.colleges.some((bound) => nameKey(bound) === nameKey(college))) continue;
-        issues.add(`${refereeName}（${role}）的回避学院“${college}”与球队“${item.name}”（${item.reason}）存在回避冲突`);
+        issues.add(`${refereeName}（${role}）的回避学院“${college}”与${item.name ? `球队“${item.name}”（${item.reason}）` : item.reason}存在回避冲突`);
       }
     }
   }
@@ -452,5 +456,5 @@ export function analyzeAvoidance(
 
 export function matchAvoidanceSummary(match: Match, matches: Match[], teams: Team[] = [], groupOrders: GroupOrder[] = []) {
   const related = avoidanceTeams(match, matches, teams, groupOrders);
-  return { colleges: uniqueNames(related.items.flatMap((item) => item.colleges)), complete: match.status === 'cancelled' || (related.items.length > 0 && related.warnings.length === 0) };
+  return { colleges: uniqueNames(related.items.flatMap((item) => item.colleges)), complete: match.status === 'cancelled' || match.avoidanceOverride?.mode === 'replace' || (related.items.length > 0 && related.warnings.length === 0) };
 }

@@ -11,7 +11,7 @@ import { applyAdvancement } from '../src/domain/avoidance.ts';
 import { previewStandingsResults } from '../src/domain/standings-import.ts';
 import { normalizeTeamName, teamColor } from '../src/domain/teams.ts';
 import { Router } from './router.mjs';
-import { normalizeCollegeName, normalizeColleges, normalizeGroupOrder, validateMatchAvoidance, validateSnapshot } from './validation.mjs';
+import { normalizeCollegeName, normalizeColleges, normalizeMatchAvoidance, normalizeGroupOrder, validateMatchAvoidance, validateSnapshot } from './validation.mjs';
 
 export function validDate(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
@@ -177,6 +177,7 @@ function validateMatch(input) {
     away: normalizeTeamName(text(input.away, 60)),
     ...(input.result !== undefined ? { result: input.result } : {}),
     ...(input.placementMode !== undefined ? { placementMode: input.placementMode } : {}),
+    ...(input.avoidanceOverride !== undefined ? { avoidanceOverride: normalizeMatchAvoidance(input.avoidanceOverride, store.colleges || []) } : {}),
     ...(input.homeSource !== undefined ? { homeSource: input.homeSource } : {}),
     ...(input.awaySource !== undefined ? { awaySource: input.awaySource } : {}),
     homeColor: Object.hasOwn(input, 'homeColor') ? jerseyColor(input.homeColor) : teamColor(store, event, text(input.home, 60)),
@@ -340,8 +341,9 @@ app.delete('/api/colleges', requireAdmin, async (req, res, next) => {
     const name = normalizeCollegeName(req.query.name), key = name.toLocaleLowerCase();
     if (!key || !(store.colleges || []).some((item) => normalizeCollegeName(item).toLocaleLowerCase() === key)) return res.status(404).json({ error: '该学院尚未登记' });
     const used = store.referees.some((referee) => (referee.avoidanceColleges || []).some((item) => normalizeCollegeName(item).toLocaleLowerCase() === key))
-      || (store.teams || []).some((team) => (team.colleges || []).some((item) => normalizeCollegeName(item).toLocaleLowerCase() === key));
-    if (used) throw new Error('该学院仍被裁判员或球队使用，不能删除');
+      || (store.teams || []).some((team) => (team.colleges || []).some((item) => normalizeCollegeName(item).toLocaleLowerCase() === key))
+      || store.matches.some((match) => (match.avoidanceOverride?.colleges || []).some((item) => normalizeCollegeName(item).toLocaleLowerCase() === key));
+    if (used) throw new Error('该学院仍被裁判员、球队或比赛回避设置使用，不能删除');
     store.colleges = (store.colleges || []).filter((item) => normalizeCollegeName(item).toLocaleLowerCase() !== key);
     await persist(); res.status(204).end();
   } catch (error) { next(error); }

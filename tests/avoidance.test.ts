@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CompetitionEvent, DataStore, Match, Referee, Team } from '../src/domain/types';
-import { analyzeAvoidance, applyAdvancement, avoidanceTeams, groupStandings, resolveMatchTeams } from '../src/domain/avoidance';
+import { analyzeAvoidance, applyAdvancement, avoidanceTeams, groupStandings, matchAvoidanceSummary, resolveMatchTeams } from '../src/domain/avoidance';
 import { assignmentIssues, assignmentWarnings } from '../src/domain/scheduling';
 import { initialChannelStats } from '../src/domain/referees';
 // @ts-expect-error Shared Fetch API is implemented in Node ESM.
@@ -58,6 +58,57 @@ function apiFixture(initial = seed()) {
 const itemNames = (match: Match, matches: Match[], teams: Team[] = []) => avoidanceTeams(match, matches, teams).items.map((item) => item.name);
 
 describe('学院回避与赛程作用域', () => {
+  it('本场补充名单与自动名单合并，缺少后续对阵仍提醒且补充学院也阻止冲突选派', () => {
+    const match = makeMatch('manual', { stage: 'knockout', avoidanceOverride: { mode: 'supplement', colleges: ['丙学院', '甲学院'] }, officials: [{ role: 'referee', refereeId: 'r1', name: '测试裁判' }] });
+    const teams = [makeTeam('测试甲', ['甲学院']), makeTeam('测试乙', ['乙学院'])];
+    expect(matchAvoidanceSummary(match, [match], teams)).toEqual({ colleges: ['甲学院', '乙学院', '丙学院'], complete: false });
+    const analysis = analyzeAvoidance(match, [match], [makeReferee('r1', ['丙学院'])], teams);
+    expect(analysis.warnings).toContain('未找到后续对阵，仅检查当前参赛球队');
+    expect(analysis.issues).toEqual(['测试裁判（主裁判）的回避学院“丙学院”与本场补充回避存在回避冲突']);
+  });
+
+  it('手动名单替代自动名单并消除后续对阵缺失提醒，只影响本场，恢复自动后重新按规则计算', () => {
+    const current = makeMatch('manual', { stage: 'knockout', avoidanceOverride: { mode: 'replace', colleges: ['丙学院'] } });
+    const other = makeMatch('other');
+    const teams = [makeTeam('测试甲', ['甲学院']), makeTeam('测试乙', ['乙学院'])];
+    expect(matchAvoidanceSummary(current, [current, other], teams)).toEqual({ colleges: ['丙学院'], complete: true });
+    expect(avoidanceTeams(current, [current, other], teams).warnings).toEqual([]);
+    expect(matchAvoidanceSummary(other, [current, other], teams)).toEqual({ colleges: ['甲学院', '乙学院'], complete: true });
+    expect(matchAvoidanceSummary({ ...current, avoidanceOverride: undefined }, [current, other], teams)).toEqual({ colleges: ['甲学院', '乙学院'], complete: false });
+    const empty = { ...current, avoidanceOverride: { mode: 'replace' as const, colleges: [] } };
+    expect(matchAvoidanceSummary(empty, [empty], teams)).toEqual({ colleges: [], complete: true });
+    expect(avoidanceTeams({ ...current, status: 'cancelled' }, [current], teams)).toEqual({ items: [], warnings: [] });
+  });
+
+  it('本场回避设置可通过 API 保存重载、恢复自动，且备份验证与学院删除检查保持一致', async () => {
+    const initial = seed(); initial.colleges = ['甲学院', '乙学院']; initial.matches = [makeMatch()];
+    const f = apiFixture(initial);
+    let response = await f.call('PUT', '/api/matches/m1', { ...f.data.matches[0], avoidanceOverride: { mode: 'replace', colleges: [' 乙学院 ', '乙学院'] } });
+    expect(response.status).toBe(200);
+    expect(f.data.matches[0].avoidanceOverride).toEqual({ mode: 'replace', colleges: ['乙学院'] });
+    const loaded = await (await f.call('GET', '/api/data')).json();
+    expect(loaded.matches[0].avoidanceOverride).toEqual(f.data.matches[0].avoidanceOverride);
+    expect(() => validateSnapshot(f.data)).not.toThrow();
+    response = await f.call('DELETE', '/api/colleges?name=' + encodeURIComponent('乙学院'));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain('比赛回避设置');
+    const { avoidanceOverride: _unused, ...automatic } = f.data.matches[0];
+    expect((await f.call('PUT', '/api/matches/m1', automatic)).status).toBe(200);
+    expect(f.data.matches[0].avoidanceOverride).toBeUndefined();
+    expect((await f.call('DELETE', '/api/colleges?name=' + encodeURIComponent('乙学院'))).status).toBe(204);
+  });
+
+  it('API 拒绝非法或未登记的本场名单，手动冲突不能绕过服务端校验，失败不写数据', async () => {
+    const initial = seed(); initial.colleges = ['甲学院']; initial.referees = [makeReferee()]; initial.matches = [makeMatch()];
+    const f = apiFixture(initial);
+    for (const avoidanceOverride of [null, { mode: 'bad', colleges: [] }, { mode: 'replace', colleges: '甲学院' }, { mode: 'replace', colleges: ['未知学院'] }]) {
+      expect((await f.call('PUT', '/api/matches/m1', { ...initial.matches[0], avoidanceOverride })).status).toBe(400);
+      expect(() => validateSnapshot({ ...initial, matches: [{ ...initial.matches[0], avoidanceOverride }] })).toThrow();
+    }
+    const response = await f.call('PUT', '/api/matches/m1', { ...initial.matches[0], avoidanceOverride: { mode: 'replace', colleges: ['甲学院'] }, officials: [{ role: 'referee', refereeId: 'r1', name: '测试裁判' }] });
+    expect(response.status).toBe(400); expect((await response.json()).error).toContain('回避冲突'); expect(f.writes).toBe(0);
+  });
+
   it('多学院裁判与多学院联合球队按具体学院和球队报告冲突，无关学院不报错', () => {
     const match = makeMatch('joint', {
       home: '联合队', away: '对手队',

@@ -190,6 +190,7 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
         const manual = {
           ...(existing.result !== undefined ? { result: existing.result } : {}),
           ...(existing.placementMode !== undefined ? { placementMode: existing.placementMode } : {}),
+          ...(existing.avoidanceOverride !== undefined ? { avoidanceOverride: existing.avoidanceOverride } : {}),
           ...(existing.homeSource !== undefined ? { homeSource: existing.homeSource } : {}),
           ...(existing.awaySource !== undefined ? { awaySource: existing.awaySource } : {}),
         };
