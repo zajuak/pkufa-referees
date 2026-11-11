@@ -12,6 +12,7 @@ export function createCampusHandler(env) {
     try {
       const auth = await requestAuth(request, env);
       auth.publicQueries = env.PUBLIC_QUERIES === 'true';
+      auth.standingsSourceUrl = env.STANDINGS_API_URL || 'http://127.0.0.1:8080/api/records';
       const response = await authEndpoint(request, env, repository, auth) || await handleApi(request, repository, auth);
       const headers = new Headers(response.headers);
       headers.set('Cache-Control', 'no-store'); headers.set('X-Content-Type-Options', 'nosniff');

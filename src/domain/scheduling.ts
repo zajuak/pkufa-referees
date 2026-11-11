@@ -1,4 +1,5 @@
-import type { Match, Role, Unavailability } from './types.ts';
+import { analyzeAvoidance } from './avoidance.ts';
+import type { GroupOrder, Match, Referee, Role, Team, Unavailability } from './types.ts';
 
 export const additionalAssistantRoles: Role[] = ['additionalAssistant1', 'additionalAssistant2'];
 export const isAssistantRole = (role: Role) => ['assistant1', 'assistant2', ...additionalAssistantRoles].includes(role);
@@ -19,8 +20,14 @@ export function matchInterval(match: Pick<Match, 'date' | 'time'>): [number, num
   return [start, end];
 }
 
-export function assignmentIssues(match: Match, matches: Match[], leave: Unavailability[] = []): string[] {
-  if (match.status === 'cancelled') return [];
+export interface AssignmentContext {
+  referees?: Referee[];
+  teams?: Team[];
+  groupOrders?: GroupOrder[];
+}
+
+export function assignmentAnalysis(match: Match, matches: Match[], leave: Unavailability[] = [], context?: AssignmentContext): { issues: string[]; warnings: string[] } {
+  if (match.status === 'cancelled') return { issues: [], warnings: [] };
   const issues = new Set<string>();
   const interval = matchInterval(match);
   const assigned = match.officials.filter((o) => o.refereeId);
@@ -35,7 +42,17 @@ export function assignmentIssues(match: Match, matches: Match[], leave: Unavaila
       if (otherTime && interval[0] < otherTime[1] && otherTime[0] < interval[1]) issues.add(`${official.name}与 ${other.date} ${other.time} ${other.home || other.group}—${other.away} 的选派时间冲突`);
     }
   }
-  return [...issues];
+  const avoidance = context ? analyzeAvoidance(match, matches, context.referees || [], context.teams || [], context.groupOrders || []) : { issues: [], warnings: [] };
+  avoidance.issues.forEach((issue) => issues.add(issue));
+  return { issues: [...issues], warnings: avoidance.warnings };
+}
+
+export function assignmentIssues(match: Match, matches: Match[], leave: Unavailability[] = [], context?: AssignmentContext): string[] {
+  return assignmentAnalysis(match, matches, leave, context).issues;
+}
+
+export function assignmentWarnings(match: Match, matches: Match[], leave: Unavailability[] = [], context?: AssignmentContext): string[] {
+  return assignmentAnalysis(match, matches, leave, context).warnings;
 }
 
 export function vacantRoles(match: Match) {

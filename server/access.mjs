@@ -10,8 +10,8 @@ export function readableStore(store, auth) {
   return {
     version: store.version, revision: store.revision || 0, updatedAt: store.updatedAt,
     meta: { association: store.meta.association, season: store.meta.season, rulesVersion: store.meta.rulesVersion, importedAt: store.meta.importedAt, sourceFiles: [], counts: store.meta.counts },
-    matches: store.matches.map((m) => Object.fromEntries(['id', 'season', 'week', 'channel', 'event', 'competition', 'date', 'time', 'venue', 'group', 'home', 'away', 'homeColor', 'awayColor', 'stage', 'division', 'status', 'note', 'bonuses', 'officials', 'additionalAssistants'].map((key) => [key, key === 'officials' ? m.officials.map((o) => ({ role: o.role, refereeId: o.refereeId, name: o.name, substitute: o.substitute })) : m[key]]))),
-    teams: store.teams || [],
+    matches: store.matches.map((m) => Object.fromEntries(['id', 'season', 'week', 'channel', 'event', 'competition', 'date', 'time', 'venue', 'group', 'home', 'away', 'result', 'placementMode', 'homeSource', 'awaySource', 'homeColor', 'awayColor', 'stage', 'division', 'status', 'note', 'bonuses', 'officials', 'additionalAssistants'].map((key) => [key, key === 'officials' ? m.officials.map((o) => ({ role: o.role, refereeId: o.refereeId, name: o.name, substitute: o.substitute })) : m[key]]))),
+    teams: (store.teams || []).map((team) => ({ event: team.event, name: team.name, color: team.color })),
     referees,
     adjustments: financialQueries ? store.adjustments.filter((a) => auth.publicQueries || a.refereeId === auth.refereeId) : [],
     rules: store.rules, wageStandards: store.wageStandards,

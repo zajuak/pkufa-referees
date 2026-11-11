@@ -187,11 +187,19 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
         if (additionalAssistants && parsed.status !== 'cancelled') for (const role of additionalAssistantRoles) {
           officials.push(existing.officials.find((o) => o.role === role) || { role, refereeId: null, name: '' });
         }
-        Object.assign(existing, parsed, {
+        const manual = {
+          ...(existing.result !== undefined ? { result: existing.result } : {}),
+          ...(existing.placementMode !== undefined ? { placementMode: existing.placementMode } : {}),
+          ...(existing.homeSource !== undefined ? { homeSource: existing.homeSource } : {}),
+          ...(existing.awaySource !== undefined ? { awaySource: existing.awaySource } : {}),
+        };
+        const status = parsed.status === 'cancelled' ? 'cancelled' : existing.status === 'completed' ? 'completed' : 'scheduled';
+        Object.assign(existing, parsed, manual, {
           id: existing.id, season: existing.season || season, week: existing.week, officials, additionalAssistants,
           stage: parsed.stage === 'group' && !(parsed.channel === 'five' && /常规赛|小组赛/.test(parsed.group)) ? existing.stage : parsed.stage,
-          status: parsed.status === 'cancelled' ? 'cancelled' : existing.status === 'completed' ? 'completed' : 'scheduled',
+          status,
         });
+        if (status === 'cancelled') delete existing.result;
         updated += 1;
       } else {
         store.matches.push({ ...parsed, id: `match-${randomUUID()}`, season, week });

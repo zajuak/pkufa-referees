@@ -28,6 +28,7 @@ export interface Referee {
   id: string;
   name: string;
   channels: Partial<Record<Channel, ChannelStats>>;
+  avoidanceColleges?: string[];
 }
 
 export interface Official {
@@ -36,6 +37,10 @@ export interface Official {
   name: string;
   substitute?: boolean;
 }
+
+export type MatchTeamSource =
+  | { kind: 'match'; matchId: string; outcome: 'winner' | 'loser' }
+  | { kind: 'group'; group: string; rank: number };
 
 export interface Match {
   id: string;
@@ -50,6 +55,10 @@ export interface Match {
   group: string;
   home: string;
   away: string;
+  result?: { home: number; away: number; homePenalties?: number; awayPenalties?: number };
+  placementMode?: 'grouped' | 'single';
+  homeSource?: MatchTeamSource;
+  awaySource?: MatchTeamSource;
   homeColor?: string;
   awayColor?: string;
   stage: Stage;
@@ -112,10 +121,20 @@ export interface Team {
   event: CompetitionEvent;
   name: string;
   color: string;
+  colleges?: string[];
+}
+
+export interface GroupOrder {
+  event: CompetitionEvent;
+  season: string;
+  group: string;
+  teams: string[];
 }
 
 export interface DataStore {
   teams?: Team[];
+  colleges?: string[];
+  groupOrders?: GroupOrder[];
   access?: { role: 'public' | 'referee' | 'admin'; refereeId?: string };
   revision?: number;
   updatedAt?: string;

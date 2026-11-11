@@ -3,13 +3,14 @@ import { Save, Trash2, X } from 'lucide-react';
 import { api, useData } from '../hooks/useData';
 import { availableSeasons, CURRENT_SEASON, roleName } from '../domain/calculations';
 import { defaultCompetition, eventsForChannel, getMatchEvent } from '../domain/competitions';
-import { assignmentIssues, matchRoles, requiredRoles, usesAdditionalAssistants } from '../domain/scheduling';
+import { assignmentAnalysis, matchRoles, requiredRoles, usesAdditionalAssistants } from '../domain/scheduling';
+import { applyAdvancement, resolveMatchTeams } from '../domain/avoidance';
 import { automaticTimeBonuses, matchBonuses, timeBonusKinds, timeBonusLabels } from '../domain/time-bonuses';
 import { allowedStages, stageOptions, stageLabel } from '../domain/stages';
 import { matchWeek } from '../domain/weeks';
 import { eventTeams, teamColor } from '../domain/teams';
 import { normalizeRefereeName, refereeNameKey } from '../domain/referees';
-import type { Channel, CompetitionEvent, Match } from '../domain/types';
+import type { Channel, CompetitionEvent, Match, MatchTeamSource } from '../domain/types';
 
 function emptyMatch(): Match {
   return {
@@ -35,25 +36,66 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
   const [error, setError] = useState('');
   const automaticBonuses = automaticTimeBonuses(form);
   const calculatedWeek = matchWeek(form, data!.matches, data!.meta.season);
-  const issues = assignmentIssues({ ...form, officials: form.officials.map((official) => {
+  const analysisMatch = { ...form, officials: form.officials.map((official) => {
     if (official.refereeId || !official.name) return official;
     const sameName = data!.referees.filter((referee) => refereeNameKey(referee.name) === refereeNameKey(official.name));
     const sameChannel = sameName.filter((referee) => referee.channels[form.channel]);
     const existing = sameChannel.length === 1 ? sameChannel[0] : sameName.length === 1 ? sameName[0] : undefined;
     return { ...official, refereeId: existing?.id || `new:${refereeNameKey(official.name)}` };
-  }) }, data!.matches, data!.unavailability);
+  }) };
+  const prospectiveMatches = applyAdvancement(data!.matches.some((item) => item.id === form.id)
+    ? data!.matches.map((item) => item.id === form.id ? analysisMatch : item)
+    : [...data!.matches, analysisMatch], data!.groupOrders || []);
+  const resolvedMatch = prospectiveMatches.find((item) => item === analysisMatch || (item.id && item.id === form.id)) || analysisMatch;
+  const analysis = assignmentAnalysis(resolvedMatch, prospectiveMatches, data!.unavailability, {
+    referees: data!.referees, teams: data!.teams || [], groupOrders: data!.groupOrders || [],
+  });
+  const scoreErrors: string[] = [];
+  if (form.result) {
+    if (form.status !== 'completed') scoreErrors.push('只有已完成比赛可以填写赛果');
+    if (![form.result.home, form.result.away].every((value) => Number.isSafeInteger(value) && value >= 0)) scoreErrors.push('比分必须是非负整数');
+    if (['knockout', 'semifinal', 'final', 'third'].includes(form.stage) && form.result.home === form.result.away
+      && (!Number.isSafeInteger(form.result.homePenalties) || !Number.isSafeInteger(form.result.awayPenalties) || form.result.homePenalties === form.result.awayPenalties)) scoreErrors.push('淘汰赛常规比分持平时，必须填写不相等的点球比分');
+  }
+  const issues = [...analysis.issues, ...scoreErrors];
+  const warnings = analysis.warnings;
+  const resolvedTeams = resolveMatchTeams(resolvedMatch, prospectiveMatches, data!.groupOrders || []);
   const seasons = availableSeasons(data!.matches, data!.adjustments);
   const update = <K extends keyof Match>(key: K, value: Match[K]) => setForm((current) => ({ ...current, [key]: value }));
   const changeChannel = (channel: Channel) => setForm((current) => {
     const event = channel === 'eleven' ? 'freshmen-cup' : 'womens-pku-cup';
-    return { ...current, channel, event, competition: defaultCompetition(event), stage: allowedStages(channel).includes(current.stage) ? current.stage : 'group', additionalAssistants: false, home: '', away: '', homeColor: '', awayColor: '', officials: current.status === 'cancelled' ? [] : requiredRoles(channel).map((role) => ({ role, refereeId: null, name: '' })) };
+    return { ...current, channel, event, competition: defaultCompetition(event), stage: allowedStages(channel).includes(current.stage) ? current.stage : 'group', additionalAssistants: false, home: '', away: '', homeColor: '', awayColor: '', result: undefined, placementMode: undefined, homeSource: undefined, awaySource: undefined, officials: current.status === 'cancelled' ? [] : requiredRoles(channel).map((role) => ({ role, refereeId: null, name: '' })) };
   });
-  const changeEvent = (event: CompetitionEvent) => setForm((current) => ({ ...current, event, competition: defaultCompetition(event), home: '', away: '', homeColor: '', awayColor: '' }));
+  const changeEvent = (event: CompetitionEvent) => setForm((current) => ({ ...current, event, competition: defaultCompetition(event), home: '', away: '', homeColor: '', awayColor: '', result: undefined, homeSource: undefined, awaySource: undefined }));
   const changeStatus = (status: Match['status']) => setForm((current) => ({
     ...current,
     status,
+    result: status === 'completed' ? current.result : undefined,
     officials: status === 'cancelled' ? [] : matchRoles(current).map((role) => current.officials.find((item) => item.role === role) || { role, refereeId: null, name: '' }),
   }));
+  const changeStage = (stage: Match['stage']) => setForm((current) => ({
+    ...current, stage,
+    placementMode: current.channel === 'eleven' && stage === 'placement' ? current.placementMode || 'grouped' : undefined,
+    homeSource: current.channel === 'eleven' && ['knockout', 'semifinal', 'final', 'third'].includes(stage) ? current.homeSource : undefined,
+    awaySource: current.channel === 'eleven' && ['knockout', 'semifinal', 'final', 'third'].includes(stage) ? current.awaySource : undefined,
+  }));
+  const sourceMatches = data!.matches.filter((item) => item.id !== form.id && item.event === form.event && (item.season || data!.meta.season) === form.season && item.status !== 'cancelled');
+  const setSource = (side: 'home' | 'away', mode: 'direct' | 'winner' | 'loser' | 'group') => setForm((current) => {
+    const key = `${side}Source` as const;
+    let source: MatchTeamSource | undefined;
+    if (mode === 'winner' || mode === 'loser') source = { kind: 'match', matchId: sourceMatches[0]?.id || '', outcome: mode };
+    if (mode === 'group') source = { kind: 'group', group: current.group || 'A', rank: 1 };
+    return { ...current, [key]: source, ...(source ? { [side]: '', [`${side}Color`]: '' } : {}) };
+  });
+  const patchSource = (side: 'home' | 'away', source: MatchTeamSource) => setForm((current) => ({ ...current, [`${side}Source`]: source }));
+  const updateScore = (key: 'home' | 'away' | 'homePenalties' | 'awayPenalties', raw: string) => setForm((current) => {
+    const value = raw === '' ? undefined : Number(raw);
+    const result = { home: 0, away: 0, ...current.result, [key]: value };
+    if (key === 'homePenalties' || key === 'awayPenalties') {
+      if (value === undefined) delete result[key];
+    } else result[key] = value ?? 0;
+    return { ...current, result };
+  });
 
   const selectedEvent = getMatchEvent(form) || 'freshmen-cup';
   const teams = eventTeams(data!, selectedEvent);
@@ -93,15 +135,23 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
         <label>时间<input required placeholder="12:00-14:00" value={form.time} onChange={(event) => update('time', event.target.value)} /></label>
         <label>场地<input required value={form.venue} onChange={(event) => update('venue', event.target.value)} /></label>
         <label>组别<input value={form.group} onChange={(event) => update('group', event.target.value)} /></label>
-        <label>比赛阶段<select value={form.stage} onChange={(event) => update('stage', event.target.value as Match['stage'])}>{!allowedStages(form.channel).includes(form.stage) && <option value={form.stage} disabled>旧阶段：{stageLabel(form.stage)}（请选择新阶段）</option>}{stageOptions(form.channel).map((stage) => <option key={stage.value} value={stage.value}>{stage.label}</option>)}</select></label>
+        <label>比赛阶段<select value={form.stage} onChange={(event) => changeStage(event.target.value as Match['stage'])}>{!allowedStages(form.channel).includes(form.stage) && <option value={form.stage} disabled>旧阶段：{stageLabel(form.stage)}（请选择新阶段）</option>}{stageOptions(form.channel).map((stage) => <option key={stage.value} value={stage.value}>{stage.label}</option>)}</select></label>
       </div>
-      <div className="form-grid two-cols">{(['home', 'away'] as const).map((side) => <label key={side}>{side === 'home' ? '主队' : '客队'}<select aria-label={side === 'home' ? '主队' : '客队'} value={form[side]} onChange={(e) => chooseTeam(side, e.target.value)}><option value="">请选择球队（可暂不选择）</option>{teams.map((team) => <option key={team.name} value={team.name}>{team.name}{team.bound ? '' : ' · 未绑定颜色'}</option>)}</select></label>)}</div>
-      <p className="adjustment-help">球队按赛事分别维护，请先在“球队与球衣”中绑定。选择球队后自动填色；下方可为本场临时调整，不改写球队默认色或历史比赛。</p>
+      {form.channel === 'eleven' && form.stage === 'placement' && <label>排位赛模式<select aria-label="排位赛模式" value={form.placementMode || 'grouped'} onChange={(event) => update('placementMode', event.target.value as Match['placementMode'])}><option value="grouped">分组排位：回避同组全部球队</option><option value="single">单场排位：仅回避对阵双方</option></select></label>}
+      {form.channel === 'eleven' && ['knockout', 'semifinal', 'final', 'third'].includes(form.stage) ? <fieldset className="advancement-fields"><legend>参赛球队与晋级来源</legend><p className="adjustment-help">直接选择球队，或从同赛事、同学期的比赛胜负者和小组名次自动晋级。未定球队会保留全部候选用于回避检查。</p>{(['home', 'away'] as const).map((side) => {
+        const source = form[`${side}Source`];
+        const label = side === 'home' ? '主队' : '客队';
+        const mode = source?.kind === 'match' ? source.outcome : source?.kind === 'group' ? 'group' : 'direct';
+        const candidates = side === 'home' ? resolvedTeams.homeCandidates : resolvedTeams.awayCandidates;
+        return <div className="advancement-slot" key={side}><div className="form-grid two-cols"><label>{label}来源<select aria-label={`${label}来源`} value={mode} onChange={(event) => setSource(side, event.target.value as 'direct' | 'winner' | 'loser' | 'group')}><option value="direct">直接选择球队</option><option value="winner">比赛胜者</option><option value="loser">比赛负者</option><option value="group">小组名次</option></select></label>{!source && <label>{label}<select aria-label={label} value={form[side]} onChange={(event) => chooseTeam(side, event.target.value)}><option value="">请选择球队（可暂不选择）</option>{teams.map((team) => <option key={team.name} value={team.name}>{team.name}{team.bound ? '' : ' · 未绑定学院/颜色'}</option>)}</select></label>}{source?.kind === 'match' && <label>{label}来源比赛<select aria-label={`${label}来源比赛`} value={source.matchId} onChange={(event) => patchSource(side, { ...source, matchId: event.target.value })}><option value="">请选择来源比赛</option>{sourceMatches.map((item) => <option key={item.id} value={item.id}>{item.date} · {item.home || item.group}—{item.away} · {item.id}</option>)}</select></label>}{source?.kind === 'group' && <><label>来源小组<input aria-label={`${label}来源小组`} required value={source.group} onChange={(event) => patchSource(side, { ...source, group: event.target.value })} /></label><label>小组名次<input aria-label={`${label}小组名次`} type="number" min="1" step="1" value={source.rank} onChange={(event) => patchSource(side, { ...source, rank: Number(event.target.value) })} /></label></>}</div><p className="advancement-preview">{label}：{candidates.length ? candidates.join(' / ') : '待定'}{candidates.length > 1 ? '（候选）' : ''}</p></div>;
+      })}</fieldset> : <div className="form-grid two-cols">{(['home', 'away'] as const).map((side) => <label key={side}>{side === 'home' ? '主队' : '客队'}<select aria-label={side === 'home' ? '主队' : '客队'} value={form[side]} onChange={(event) => chooseTeam(side, event.target.value)}><option value="">请选择球队（可暂不选择）</option>{teams.map((team) => <option key={team.name} value={team.name}>{team.name}{team.bound ? '' : ' · 未绑定学院/颜色'}</option>)}</select></label>)}</div>}
+      <p className="adjustment-help">球队按赛事分别维护，请先在“球队与球衣”中绑定学院和颜色。直接选择球队后自动填色；下方可为本场临时调整，不改写球队默认色或历史比赛。</p>
       <div className="form-grid two-cols">
         <label>主队球衣颜色<div className="color-input"><input type="color" aria-label="主队球衣颜色" value={form.homeColor || '#FFFFFF'} onChange={(event) => update('homeColor', event.target.value.toUpperCase())} /><span>{form.homeColor || '未设置'}</span><button type="button" aria-label="清除主队球衣颜色" onClick={() => update('homeColor', '')}>清除</button></div></label>
         <label>客队球衣颜色<div className="color-input"><input type="color" aria-label="客队球衣颜色" value={form.awayColor || '#FFFFFF'} onChange={(event) => update('awayColor', event.target.value.toUpperCase())} /><span>{form.awayColor || '未设置'}</span><button type="button" aria-label="清除客队球衣颜色" onClick={() => update('awayColor', '')}>清除</button></div></label>
       </div>
       <div className="form-grid two-cols"><label>联赛组别<select value={form.division || ''} onChange={(event) => update('division', (event.target.value || null) as Match['division'])}><option value="">不适用</option><option value="甲">甲组（北大杯工资 ×1.1）</option><option value="乙">乙组</option></select></label><label>比赛状态<select value={form.status} onChange={(event) => changeStatus(event.target.value as Match['status'])}><option value="scheduled">待进行（结束后自动完成）</option><option value="completed">手动标记已完成</option><option value="cancelled">已取消</option></select></label></div>
+      {form.status === 'completed' && <fieldset className="result-fields"><legend>比赛结果</legend>{form.result && <button type="button" className="button secondary" onClick={() => update('result', undefined)}>清除赛果</button>}<p className="adjustment-help">比分可暂不录入；未录入不参与积分榜和晋级。小组赛胜 3、平 1、负 0，淘汰赛须有明确胜负。</p><div className="score-inputs"><label>主队比分<input aria-label="主队比分" type="number" required={Boolean(form.result)} min="0" step="1" value={form.result?.home ?? ''} onChange={(event) => updateScore('home', event.target.value)} /></label><span>:</span><label>客队比分<input aria-label="客队比分" type="number" required={Boolean(form.result)} min="0" step="1" value={form.result?.away ?? ''} onChange={(event) => updateScore('away', event.target.value)} /></label>{form.channel === 'eleven' && ['knockout', 'semifinal', 'final', 'third'].includes(form.stage) && form.result?.home === form.result?.away && <><span>点球</span><label>主队点球<input aria-label="主队点球" type="number" required min="0" step="1" value={form.result?.homePenalties ?? ''} onChange={(event) => updateScore('homePenalties', event.target.value)} /></label><span>:</span><label>客队点球<input aria-label="客队点球" type="number" required min="0" step="1" value={form.result?.awayPenalties ?? ''} onChange={(event) => updateScore('awayPenalties', event.target.value)} /></label></>}</div></fieldset>}
       {form.channel === 'eleven' && <fieldset className="additional-assistant-setting"><label><input type="checkbox" checked={Boolean(form.additionalAssistants)} onChange={(e) => changeAdditional(e.target.checked)} />需要附加助理裁判（2 人）</label><p>启用后增加两个岗位，工资、积分及半决赛/决赛补贴均与助理裁判相同。</p></fieldset>}
       {form.status !== 'cancelled' && ['semifinal', 'final'].includes(form.stage) && <p className="automatic-supplement" role="status">{form.stage === 'semifinal' ? '半决赛' : '决赛'}补贴自动计入工资：{form.channel === 'eleven' ? '主裁、助理及附加助理' : '第一、第二裁判'}每人 +{form.stage === 'semifinal' ? 10 : 20} 元，{form.channel === 'eleven' ? '第四官员' : '第三裁判'} +{form.stage === 'semifinal' ? 5 : 10} 元，无需再登记奖惩。</p>}
       {form.status === 'cancelled' ? <p className="inline-empty">比赛已取消，无需选派裁判。</p> : <fieldset className="official-fields"><legend>裁判选派</legend><p className="adjustment-help">输入姓名后在下拉框中选派；没有档案时可选择“新建并选派”，保存比赛时自动创建。已有其他赛制档案会直接补齐本赛制，不重复建档。</p>{form.officials.map((official, index) => {
@@ -127,12 +177,14 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
             }}><option value="">待选派</option>{eligibleReferees.map((referee) => <option key={referee.id} value={referee.id}>{referee.name}</option>)}{pendingNames.map((name) => <option key={`new:${name}`} value={`new:${name}`}>{data!.referees.some((referee) => refereeNameKey(referee.name) === refereeNameKey(name)) ? '选派并补齐档案' : '新建并选派'}：{name}</option>)}{!eligibleReferees.length && !pendingNames.length && <option disabled>没有匹配的裁判员</option>}</select>
           </div>
           {(official.refereeId || official.name) && <label className="substitute-check"><input type="checkbox" checked={official.substitute || false} onChange={(event) => setForm((current) => ({ ...current, officials: current.officials.map((item, i) => i === index ? { ...item, substitute: event.target.checked } : item) }))} />临时替补 +10 元</label>}
+          {analysis.issues.filter((issue) => issue.includes(`（${roleLabel}）`) && issue.includes(official.name)).map((issue) => <p className="official-avoidance-issue" key={issue}>{issue}</p>)}
         </div>;
       })}</fieldset>}
       <fieldset className="bonus-checks"><legend>时间补贴（自动判定）</legend>{timeBonusKinds.map((bonus) => <label key={bonus}><input type="checkbox" checked={automaticBonuses.includes(bonus)} disabled readOnly />{timeBonusLabels[bonus]}</label>)}<p className="time-bonus-help">10:00及以前开赛为早场，20:00及以后为晚场；非周六、周日为非常规时间。按比赛日期及开赛时间自动更新，命中多项仍只计一次 10 元时间补贴。</p></fieldset>
       <fieldset className="bonus-checks"><legend>其他补贴</legend><label><input type="checkbox" checked={form.bonuses.includes('badWeather')} onChange={(e) => update('bonuses', e.target.checked ? [...form.bonuses, 'badWeather'] : form.bonuses.filter((bonus) => bonus !== 'badWeather'))} />恶劣天气</label></fieldset>
       <label>备注<textarea rows={2} value={form.note} onChange={(event) => update('note', event.target.value)} /></label>
-      {issues.length > 0 && <div className="form-error" role="alert"><strong>请先处理选派冲突</strong>{issues.map((issue) => <p key={issue}>{issue}</p>)}</div>}{error && <p className="form-error" role="alert">{error}</p>}
+      {warnings.length > 0 && <div className="form-warning" role="status"><strong>回避资料提醒（不阻止保存）</strong>{warnings.map((warning) => <p key={warning}>{warning}</p>)}</div>}
+      {issues.length > 0 && <div className="form-error" role="alert"><strong>请先处理赛果或选派冲突</strong>{issues.map((issue) => <p key={issue}>{issue}</p>)}</div>}{error && <p className="form-error" role="alert">{error}</p>}
       <div className="form-actions">{form.id && <button type="button" className="button danger-ghost" onClick={() => void remove()}><Trash2 size={16} />删除</button>}<button type="button" className="button secondary" onClick={onClose}>取消</button><button className="button primary" disabled={saving || issues.length > 0}><Save size={16} />{saving ? '保存中…' : '保存比赛'}</button></div>
     </form>
   );

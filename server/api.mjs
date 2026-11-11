@@ -7,9 +7,11 @@ import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import { importAssignmentWorkbook } from './assignment-import.mjs';
 import { additionalAssistantRoles, assignmentIssues, matchInterval } from '../src/domain/scheduling.ts';
+import { applyAdvancement } from '../src/domain/avoidance.ts';
+import { previewStandingsResults } from '../src/domain/standings-import.ts';
 import { normalizeTeamName, teamColor } from '../src/domain/teams.ts';
 import { Router } from './router.mjs';
-import { validateSnapshot } from './validation.mjs';
+import { normalizeCollegeName, normalizeColleges, normalizeGroupOrder, validateMatchAvoidance, validateSnapshot } from './validation.mjs';
 
 export function validDate(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
@@ -18,6 +20,7 @@ export function validDate(value) {
 export async function handleApi(request, repository, auth) {
   const before = await repository.load();
   let store = structuredClone(before);
+  store.matches = applyAdvancement(store.matches, store.groupOrders || [], store.teams || []);
   recalculateMatchWeeks(store.matches, store.meta.season);
   recalculateMatchBonuses(store.matches);
   const app = new Router(request);
@@ -56,6 +59,45 @@ function updateMatchCounts() {
     fiveMatches: store.matches.filter((match) => match.channel === 'five').length,
     cancelledMatches: store.matches.filter((match) => match.status === 'cancelled').length,
   };
+}
+
+function assignmentContext(groupOrders = store.groupOrders || []) {
+  return { referees: store.referees, teams: store.teams || [], groupOrders };
+}
+
+function advanceChangedMatches(proposed, previous, fullIds = []) {
+  const previousGroupOrders = store.groupOrders || [];
+  store.groupOrders = previousGroupOrders.filter((order) => {
+    try { normalizeGroupOrder(order, proposed); return true; } catch { return false; }
+  });
+  const advanced = applyAdvancement(proposed, store.groupOrders, store.teams || []);
+  validateAssignmentChanges(advanced, previous, advanced.map((match) => match.id), { fullIds, previousGroupOrders });
+  return advanced;
+}
+
+function issuesFor(match, matches, groupOrders = store.groupOrders || []) {
+  return assignmentIssues(match, matches, store.unavailability || [], assignmentContext(groupOrders));
+}
+
+function validateAssignmentChanges(currentMatches, previousMatches, ids, options = {}) {
+  const previousGroupOrders = options.previousGroupOrders || store.groupOrders || [];
+  const fullIds = new Set(options.fullIds || []);
+  const oldMatches = applyAdvancement(previousMatches, previousGroupOrders, store.teams || []);
+  for (const match of currentMatches) {
+    const old = oldMatches.find((item) => item.id === match.id);
+    if (old?.result && match.result && (old.home !== match.home || old.away !== match.away)) {
+      throw new Error(`后续比赛 ${match.id} 已有赛果，请先清除或更正该场赛果，再调整上游赛果或晋级来源`);
+    }
+    if (match.homeSource || match.awaySource) validateMatchAvoidance(match, currentMatches, store.groupOrders || []);
+  }
+  for (const id of new Set(ids)) {
+    const match = currentMatches.find((item) => item.id === id);
+    if (!match) continue;
+    const old = oldMatches.find((item) => item.id === id);
+    const previousIssues = old && !fullIds.has(id) ? issuesFor(old, oldMatches, previousGroupOrders) : [];
+    const issues = issuesFor(match, currentMatches).filter((issue) => !previousIssues.includes(issue) && (!options.avoidanceOnly || issue.includes('回避冲突')));
+    if (issues.length) throw new Error(issues.join('；'));
+  }
 }
 
 function refereeForName(rawName, channel) {
@@ -133,6 +175,10 @@ function validateMatch(input) {
     group: text(input.group, 40),
     home: normalizeTeamName(text(input.home, 60)),
     away: normalizeTeamName(text(input.away, 60)),
+    ...(input.result !== undefined ? { result: input.result } : {}),
+    ...(input.placementMode !== undefined ? { placementMode: input.placementMode } : {}),
+    ...(input.homeSource !== undefined ? { homeSource: input.homeSource } : {}),
+    ...(input.awaySource !== undefined ? { awaySource: input.awaySource } : {}),
     homeColor: Object.hasOwn(input, 'homeColor') ? jerseyColor(input.homeColor) : teamColor(store, event, text(input.home, 60)),
     awayColor: Object.hasOwn(input, 'awayColor') ? jerseyColor(input.awayColor) : teamColor(store, event, text(input.away, 60)),
     stage,
@@ -145,9 +191,10 @@ function validateMatch(input) {
   };
   if (new Set(cleanOfficials.map((o) => o.role)).size !== cleanOfficials.length) throw new Error('同一岗位不能重复');
   if (status !== 'cancelled' && !matchInterval(result)) throw new Error('比赛时间请填写有效的开始和结束时间，例如 12:00-14:00');
-  const issues = assignmentIssues(result, store.matches, store.unavailability || []);
-  if (issues.length) throw new Error(issues.join('；'));
-  return result;
+  const prospective = store.matches.some((item) => item.id === result.id)
+    ? store.matches.map((item) => item.id === result.id ? result : item)
+    : [...store.matches, result];
+  return validateMatchAvoidance(result, prospective, store.groupOrders || [], { defaultPlacement: true });
 }
 
 function validateRules(input) {
@@ -217,6 +264,37 @@ function validateWageStandards(input) {
 
 app.get('/api/data', (_req, res) => res.json(readableStore(store, auth)));
 
+app.get('/api/standings-results', requireAdmin, async (_req, res, next) => {
+  try {
+    const source = auth.standingsSourceUrl || 'https://football-standings-api.junkaizhao404.workers.dev/api/records';
+    const response = await (auth.standingsFetch || fetch)(source, { signal: AbortSignal.timeout(10000) });
+    if (!response.ok) throw new Error(`积分榜返回 HTTP ${response.status}`);
+    const body = await response.text();
+    if (body.length > 5 * 1024 * 1024) throw new Error('积分榜数据超过 5 MB');
+    res.json({ records: JSON.parse(body), source: source.startsWith('http://127.0.0.1') ? '服务器积分榜' : '线上积分榜' });
+  } catch { next(new Error('无法读取积分榜，请检查积分榜服务，或上传积分榜工具导出的 JSON 文件')); }
+});
+app.post('/api/standings-results/preview', requireAdmin, (req, res, next) => {
+  try {
+    if (!Object.hasOwn(eventChannels, req.body?.event)) throw new Error('请选择赛事');
+    res.json(previewStandingsResults(store, req.body.records, req.body.event, text(req.body.season, 30)));
+  } catch (error) { next(error); }
+});
+app.post('/api/standings-results/import', requireAdmin, async (req, res, next) => {
+  try {
+    if (!Object.hasOwn(eventChannels, req.body?.event)) throw new Error('请选择赛事');
+    const preview = previewStandingsResults(store, req.body.records, req.body.event, text(req.body.season, 30));
+    if (!preview.matched.length) return res.json(preview);
+    const previousMatches = store.matches;
+    const selected = new Map(preview.matched.map((item) => [item.matchId, item.result]));
+    const advanced = advanceChangedMatches(previousMatches.map((match) => selected.has(match.id)
+      ? { ...match, status: 'completed', result: selected.get(match.id) } : match), previousMatches);
+    for (const match of advanced) if (selected.has(match.id)) validateMatchAvoidance(match, advanced, store.groupOrders || []);
+    store.matches = advanced;
+    await persist(); res.json(preview);
+  } catch (error) { next(error); }
+});
+
 app.put('/api/teams', requireAdmin, async (req, res, next) => {
   try {
     const event = text(req.body?.event, 30);
@@ -224,9 +302,11 @@ app.put('/api/teams', requireAdmin, async (req, res, next) => {
     if (!Object.hasOwn(eventChannels, event) || !name) throw new Error('请选择赛事并填写球队名称');
     const color = jerseyColor(req.body?.color);
     if (!color) throw new Error('请为球队选择球衣颜色');
-    const team = { event, name, color };
     const teams = [...(store.teams || [])];
     const index = teams.findIndex((item) => item.event === event && item.name === name);
+    const previous = index >= 0 ? teams[index] : null;
+    const colleges = req.body?.colleges === undefined ? previous?.colleges || [] : normalizeColleges(req.body.colleges, store.colleges || []);
+    const team = { event, name, color, ...(colleges.length ? { colleges } : {}) };
     if (index >= 0) teams[index] = team; else teams.push(team);
     store.teams = teams;
     await persist(); res.json(team);
@@ -239,6 +319,48 @@ app.delete('/api/teams', requireAdmin, async (req, res, next) => {
     if (!teams.some((team) => team.event === event && team.name === name)) return res.status(404).json({ error: '该球队尚未绑定颜色' });
     store.teams = teams.filter((team) => team.event !== event || team.name !== name);
     await persist(); res.status(204).end();
+  } catch (error) { next(error); }
+});
+
+app.post('/api/colleges', requireAdmin, async (req, res, next) => {
+  try {
+    const name = normalizeCollegeName(req.body?.name);
+    if (!name || name.length > 40) throw new Error('学院名称须为 1 至 40 个字符');
+    const colleges = [...(store.colleges || [])];
+    const key = name.toLocaleLowerCase();
+    if (colleges.some((item) => normalizeCollegeName(item).toLocaleLowerCase() === key)) throw new Error('该学院已经登记');
+    if (colleges.length >= 100) throw new Error('学院登记最多保留 100 个学院');
+    colleges.push(name);
+    store.colleges = colleges;
+    await persist(); res.status(201).json({ name });
+  } catch (error) { next(error); }
+});
+app.delete('/api/colleges', requireAdmin, async (req, res, next) => {
+  try {
+    const name = normalizeCollegeName(req.query.name), key = name.toLocaleLowerCase();
+    if (!key || !(store.colleges || []).some((item) => normalizeCollegeName(item).toLocaleLowerCase() === key)) return res.status(404).json({ error: '该学院尚未登记' });
+    const used = store.referees.some((referee) => (referee.avoidanceColleges || []).some((item) => normalizeCollegeName(item).toLocaleLowerCase() === key))
+      || (store.teams || []).some((team) => (team.colleges || []).some((item) => normalizeCollegeName(item).toLocaleLowerCase() === key));
+    if (used) throw new Error('该学院仍被裁判员或球队使用，不能删除');
+    store.colleges = (store.colleges || []).filter((item) => normalizeCollegeName(item).toLocaleLowerCase() !== key);
+    await persist(); res.status(204).end();
+  } catch (error) { next(error); }
+});
+app.put('/api/group-order', requireAdmin, async (req, res, next) => {
+  try {
+    const previousOrders = store.groupOrders || [];
+    const previousMatches = store.matches;
+    const order = normalizeGroupOrder(req.body, previousMatches);
+    const seasonKey = normalizeCollegeName(order.season).toLocaleLowerCase();
+    const groupKey = normalizeCollegeName(order.group).toLocaleLowerCase();
+    const affected = previousMatches.map((match) => match.id);
+    store.groupOrders = [...previousOrders.filter((item) => !(item.event === order.event
+      && normalizeCollegeName(item.season).toLocaleLowerCase() === seasonKey
+      && normalizeCollegeName(item.group).toLocaleLowerCase() === groupKey)), order];
+    const advanced = applyAdvancement(previousMatches, store.groupOrders, store.teams || []);
+    validateAssignmentChanges(advanced, previousMatches, affected, { previousGroupOrders: previousOrders, avoidanceOnly: true });
+    store.matches = advanced;
+    await persist(); res.json(order);
   } catch (error) { next(error); }
 });
 
@@ -273,12 +395,15 @@ app.delete('/api/rules', requireAdmin, async (_req, res) => {
 app.post('/api/import-assignments', requireAdmin, async (req, res, next) => {
   try {
     if (!Buffer.isBuffer(req.body) || !req.body.length) throw new Error('请选择要上传的 Excel 文件');
+    const previousMatches = structuredClone(store.matches);
     const result = importAssignmentWorkbook(store, req.body, text(req.query.season, 30) || '2026–27', text(req.query.event, 30) || 'freshmen-cup');
-    // Import is validated as one transaction; a conflict leaves the stored data untouched.
-    for (const match of store.matches) {
-      const issues = assignmentIssues(match, store.matches, store.unavailability || []);
-      if (issues.length && !before.matches.some((old) => old.id === match.id && JSON.stringify(old) === JSON.stringify(match))) throw new Error(issues.join('；'));
-    }
+    // Validate changed matches in the transaction; unrelated old conflicts do not block imports.
+    const oldMatches = applyAdvancement(previousMatches, store.groupOrders || [], store.teams || []);
+    const changedIds = store.matches.filter((match) => {
+      const old = oldMatches.find((item) => item.id === match.id);
+      return !old || JSON.stringify(old) !== JSON.stringify(match);
+    }).map((match) => match.id);
+    store.matches = advanceChangedMatches(store.matches, previousMatches, changedIds);
     await persist();
     res.json(result);
   } catch (error) { next(error); }
@@ -287,10 +412,13 @@ app.post('/api/import-assignments', requireAdmin, async (req, res, next) => {
 app.post('/api/matches', requireAdmin, async (req, res, next) => {
   try {
     const match = validateMatch(req.body);
-    store.matches.push(match);
+    if (store.matches.some((item) => item.id === match.id)) throw new Error('比赛编号已经存在');
+    const previousMatches = store.matches;
+    const advanced = advanceChangedMatches([...previousMatches, match], previousMatches, [match.id]);
+    store.matches = advanced;
     updateMatchCounts();
     await persist();
-    res.status(201).json(match);
+    res.status(201).json(store.matches.find((item) => item.id === match.id));
   } catch (error) { next(error); }
 });
 
@@ -299,17 +427,26 @@ app.put('/api/matches/:id', requireAdmin, async (req, res, next) => {
     const index = store.matches.findIndex((item) => item.id === req.params.id);
     if (index < 0) return res.status(404).json({ error: '未找到该比赛' });
     const match = validateMatch({ ...req.body, id: req.params.id });
-    store.matches[index] = match;
+    const previousMatches = store.matches;
+    const advanced = advanceChangedMatches(previousMatches.map((item) => item.id === match.id ? match : item), previousMatches, [match.id]);
+    store.matches = advanced;
     updateMatchCounts();
     await persist();
-    res.json(match);
+    res.json(store.matches.find((item) => item.id === match.id));
   } catch (error) { next(error); }
 });
 
 app.delete('/api/matches/:id', requireAdmin, async (req, res) => {
   const index = store.matches.findIndex((item) => item.id === req.params.id);
   if (index < 0) return res.status(404).json({ error: '未找到该比赛' });
-  store.matches.splice(index, 1);
+  if (store.matches.some((item) => item.id !== req.params.id
+    && [item.homeSource, item.awaySource].some((source) => source?.kind === 'match' && source.matchId === req.params.id))) {
+    return res.status(400).json({ error: '该比赛仍被后续对阵引用，请先调整晋级来源' });
+  }
+  const previousMatches = store.matches;
+  const proposed = previousMatches.filter((item) => item.id !== req.params.id);
+  const advanced = advanceChangedMatches(proposed, previousMatches);
+  store.matches = advanced;
   updateMatchCounts();
   await persist();
   res.status(204).end();
@@ -324,6 +461,15 @@ app.post('/api/referees', requireAdmin, async (req, res, next) => {
     const referee = refereeForName(name, channel);
     await persist();
     res.status(201).json(referee);
+  } catch (error) { next(error); }
+});
+
+app.put('/api/referees/:id/avoidance', requireAdmin, async (req, res, next) => {
+  try {
+    const referee = store.referees.find((item) => item.id === req.params.id);
+    if (!referee) return res.status(404).json({ error: '未找到该裁判员' });
+    referee.avoidanceColleges = normalizeColleges(req.body?.colleges, store.colleges || []);
+    await persist(); res.json(referee);
   } catch (error) { next(error); }
 });
 
@@ -426,6 +572,7 @@ function registerManagement(app, { getStore, setStore, persist, requireAdmin, re
   app.post('/api/restore', requireAdmin, async (req, res, next) => {
     try {
       const restored = validateSnapshot(req.body);
+      restored.matches = applyAdvancement(restored.matches, restored.groupOrders || []);
       setStore(restored);
       if (restored.rules) restored.rules = validateRules(restored.rules);
       if (restored.wageStandards) restored.wageStandards = validateWageStandards(restored.wageStandards);
