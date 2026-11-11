@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, symlink } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
 import type { DataStore, Match } from '../src/domain/types';
@@ -9,6 +11,22 @@ import { startCampusServer } from '../server/campus.mjs';
 import { passwordHash, sessionToken } from '../worker/auth.mjs';
 
 describe('服务器独立运行与持久化', () => {
+  it('通过 current 符号链接启动时确实监听服务', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'pkufa-cli-'));
+    const entry = path.join(directory, 'current.mjs'), seedFile = path.join(directory, 'seed.json');
+    await symlink(fileURLToPath(new URL('../server/campus.mjs', import.meta.url)), entry);
+    await writeFile(seedFile, JSON.stringify({ version: 1, revision: 0, meta: { association: '测试', season: '2026–27', rulesVersion: '测试', importedAt: '2026-11-11T00:00:00Z', sourceFiles: [], counts: { elevenMatches: 0, fiveMatches: 0, cancelledMatches: 0 } }, matches: [], referees: [], adjustments: [] }));
+    const child = spawn(process.execPath, [entry], { env: { ...process.env, HOST: '127.0.0.1', PORT: '0', DATA_DIR: path.join(directory, 'data'), SEED_FILE: seedFile, ADMIN_PASSWORD_HASH: await passwordHash('test'), SESSION_SECRET: 'cli-test-secret' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const exited = new Promise((resolve) => child.once('exit', resolve));
+    try {
+      const port = await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('服务未启动')), 4000);
+        child.stdout.on('data', (data: Buffer) => { const match = data.toString().match(/listening on port (\d+)/); if (match) { clearTimeout(timer); resolve(match[1]); } });
+        child.once('exit', (code) => { clearTimeout(timer); reject(new Error(`服务提前退出 ${code}`)); });
+      });
+      expect((await (await fetch(`http://127.0.0.1:${port}/health`)).json()).dataMode).toBe('independent');
+    } finally { child.kill('SIGTERM'); await exited; await rm(directory, { recursive: true, force: true }); }
+  });
   it('复制一次后只修改本地数据，重启保留修改，旧云端会话和跨站写入被拒绝', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'pkufa-campus-'));
     const seedFile = path.join(directory, 'seed.json'), publicDirectory = path.join(directory, 'public');

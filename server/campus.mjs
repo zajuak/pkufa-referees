@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { realpathSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
@@ -45,7 +46,7 @@ export async function startCampusServer(env = process.env) {
   return server;
 }
 
-if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
+if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url) {
   const server = await startCampusServer();
   console.log(`Independent PKUFA site listening on port ${server.address().port}`);
   process.on('SIGTERM', () => server.close(() => process.exit(0)));
