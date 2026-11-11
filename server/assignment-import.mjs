@@ -100,18 +100,40 @@ export function stageFor(group, channel = 'eleven') {
   return 'group';
 }
 
+const fiveRoleHeaders = {
+  first: ['一裁', '第一裁', '第一裁判', '1裁'],
+  second: ['二裁', '第二裁', '第二裁判', '2裁'],
+  third: ['三裁', '第三裁', '第三裁判', '3裁'],
+};
+
+function fiveColumns(row, modern, sheetName, rowNumber) {
+  const labels = row.values.slice(1).map((value) => text(value).replace(/\s/g, ''));
+  const column = (...names) => labels.findIndex((label) => names.includes(label)) + 1;
+  const roles = Object.entries(fiveRoleHeaders).map(([role, names]) => {
+    const aliases = [...names, ...(role === 'first' ? ['主裁'] : role === 'second' ? ['副裁'] : [])];
+    if (labels.filter((label) => aliases.includes(label)).length > 1) throw new Error(`${sheetName} 第 ${rowNumber} 行五人制裁判岗位表头重复`);
+    return [role, column(...aliases)];
+  });
+  if (modern && roles.some(([, index]) => !index)) throw new Error(`${sheetName} 第 ${rowNumber} 行五人制表头须同时包含一裁、二裁、三裁（可使用第一裁判、第二裁判、第三裁判）`);
+  if (!column('组别')) throw new Error(`${sheetName} 第 ${rowNumber} 行五人制表头缺少“组别”`);
+  return { roles, group: column('组别'), venue: column('场地'), home: column('主队'), away: column('客队'), note: column('备注') };
+}
+
 function parseSheet(sheet, season, store, context, selectedEvent) {
   let elevenHeader = 0;
   const fiveHeaders = [];
   for (let rowNumber = 1; rowNumber <= sheet.rowCount; rowNumber += 1) {
     const row = sheet.getRow(rowNumber);
     if (cellText(row, 1) !== '日期' || cellText(row, 2) !== '时间') continue;
-    if (cellText(row, 3) === '场地' && cellText(row, 4) === '组别') elevenHeader = rowNumber;
-    else if (row.values.some((value) => text(value) === '主裁')) fiveHeaders.push(rowNumber);
+    const modernFive = row.values.some((value) => Object.values(fiveRoleHeaders).flat().includes(text(value).replace(/\s/g, '')));
+    // Identify the three futsal roles before the shared date/time/venue/group prefix.
+    if (modernFive) fiveHeaders.push({ row: rowNumber, columns: fiveColumns(row, true, sheet.name, rowNumber) });
+    else if (cellText(row, 3) === '场地' && cellText(row, 4) === '组别') elevenHeader = rowNumber;
+    else if (row.values.some((value) => text(value) === '主裁')) fiveHeaders.push({ row: rowNumber, columns: fiveColumns(row, false, sheet.name, rowNumber) });
   }
   const matches = [];
   if (elevenHeader) {
-    const end = fiveHeaders.length ? Math.min(...fiveHeaders) - 1 : sheet.rowCount;
+    const end = fiveHeaders.length ? Math.min(...fiveHeaders.map((header) => header.row)) - 1 : sheet.rowCount;
     for (let rowNumber = elevenHeader + 1; rowNumber <= end; rowNumber += 1) {
       const row = sheet.getRow(rowNumber);
       if (!dateParts(row.getCell(1).value)) continue;
@@ -128,25 +150,28 @@ function parseSheet(sheet, season, store, context, selectedEvent) {
       });
     }
   }
-  for (const header of fiveHeaders) {
-    const headerRow = sheet.getRow(header);
-    const hasSecond = cellText(headerRow, 6) === '副裁';
+  for (const { row: header, columns } of fiveHeaders) {
     const title = cellText(sheet.getRow(header - 1), 1).replace(/\s+/g, '') || '五人制友谊赛';
     for (let rowNumber = header + 1; rowNumber <= sheet.rowCount; rowNumber += 1) {
       const row = sheet.getRow(rowNumber);
       if (!dateParts(row.getCell(1).value)) break;
-      const group = cellText(row, hasSecond ? 4 : 3);
+      const group = cellText(row, columns.group);
       const event = eventFor('five', selectedEvent, title);
       if (!event) continue;
-      const note = normalizeNote(row.getCell(hasSecond ? 7 : 5).value);
+      const note = columns.note ? normalizeNote(row.getCell(columns.note).value) : '';
       const cancelled = note.includes('比赛取消');
-      const officials = cancelled ? [] : [makeOfficial(store, 'first', row.getCell(hasSecond ? 5 : 4).value, 'five', context)];
-      if (!cancelled && hasSecond) officials.push(makeOfficial(store, 'second', row.getCell(6).value, 'five', context));
-      matches.push({
+      const officials = cancelled ? [] : columns.roles.map(([role, column]) => makeOfficial(store, role, column ? row.getCell(column).value : '', 'five', context));
+      const importedMatch = {
         channel: 'five', event, competition: eventCompetitions[event] || title, date: normalizeDate(row.getCell(1).value, season), time: normalizeTime(row.getCell(2).value),
-        venue: '未注明', group, home: '', away: '', stage: stageFor(group, 'five'), division: null,
-        status: note.includes('比赛取消') ? 'cancelled' : 'scheduled', note, bonuses: bonusesFor(note), officials,
-      });
+        venue: columns.venue ? cellText(row, columns.venue) || '未注明' : '未注明', group,
+        home: columns.home ? cellText(row, columns.home) : '', away: columns.away ? cellText(row, columns.away) : '',
+        ...(columns.home ? { homeColor: row.getCell(columns.home).color } : {}),
+        ...(columns.away ? { awayColor: row.getCell(columns.away).color } : {}),
+        stage: stageFor(group, 'five'), division: null,
+        status: cancelled ? 'cancelled' : 'scheduled', note, bonuses: bonusesFor(note), officials,
+      };
+      context.providedRoles.set(importedMatch, new Set(columns.roles.filter(([, column]) => column).map(([role]) => role)));
+      matches.push(importedMatch);
     }
   }
   return matches;
@@ -157,7 +182,7 @@ const signature = (match) => [match.channel, match.date, match.time, match.compe
 export function importAssignmentWorkbook(store, buffer, season = '2026–27', selectedEvent = 'freshmen-cup') {
   if (!Object.hasOwn(eventCompetitions, selectedEvent)) throw new Error('未知赛事分类');
   const workbook = parseWorkbook(buffer);
-  const context = { newReferees: 0 };
+  const context = { newReferees: 0, providedRoles: new WeakMap() };
   const parsedSheets = workbook.worksheets
     .filter((sheet) => !sheet.name.includes('总览'))
     .map((sheet) => ({ sheet, matches: parseSheet(sheet, season, store, context, selectedEvent) }))
@@ -181,6 +206,8 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
         matchedIds.add(existing.id);
         const officials = parsed.officials.map((official) => {
           const previous = existing.officials.find((item) => item.role === official.role);
+          // Legacy sheets cannot edit roles they have no columns for.
+          if (parsed.channel === 'five' && !context.providedRoles.get(parsed)?.has(official.role) && previous) return { ...previous };
           return { ...official, substitute: previous?.substitute || false };
         });
         const additionalAssistants = usesAdditionalAssistants(existing);
