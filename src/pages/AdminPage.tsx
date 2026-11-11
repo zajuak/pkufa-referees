@@ -76,7 +76,7 @@ function MatchManager() {
   return (
     <section className="admin-section">
       <div className="admin-section-heading"><div><h2>比赛管理</h2><p>新增赛程、调整岗位；比赛结束后自动完成并计入工资和积分。</p></div><div className="admin-heading-actions"><AssignmentUpload /><button className="button primary" onClick={() => open(null)}><Plus size={17} />新增赛程</button></div></div>
-      <p className="upload-hint">Excel 请沿用选派表格式；五人制支持“一裁、二裁、三裁”或“第一裁判、第二裁判、第三裁判”三列，兼容旧“主裁／副裁”表。相同赛程更新选派，新赛程自动追加。</p>
+      <p className="upload-hint">组别可省略整列或留空，更新时保留已有组别；比赛阶段可填写在“比赛类别”列。五人制支持“一裁、二裁、三裁”或“第一裁判、第二裁判、第三裁判”三列，兼容旧“主裁／副裁”表。相同赛程更新选派，新赛程自动追加。</p>
       {formOpen && <AdminMatchForm key={editing?.id || 'new'} match={editing} onClose={() => setFormOpen(false)} />}
       <div className="admin-list-tools"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索赛事、球队或裁判员" aria-label="搜索比赛" /><span>{matches.length} 场</span></div>
       <div className="admin-match-list">{matches.map((match) => <button className="admin-match-row" key={match.id} onClick={() => open(match)}><span className="admin-match-date"><strong>{formatDate(match.date)}</strong><small>第 {match.week} 周 · {match.time}</small></span><span className="admin-match-title"><strong>{match.home || match.group}{match.home && match.away ? ' vs ' : ''}{match.away}</strong><small>{match.competition} · {channelName(match.channel)} · {match.venue}</small></span><span className="admin-match-officials">{match.status === 'cancelled' ? '无需选派' : `${match.officials.filter((item) => item.name).length}/${match.officials.length} 已选派`}</span><StatusBadge status={effectiveMatchStatus(match)} /><span className="edit-text">编辑</span></button>)}</div>

@@ -27,6 +27,69 @@ const values = ['11.14', '16:00-17:00', '测试场', '常规赛', '测试甲队'
 const upload = (data: DataStore, file: Uint8Array, event = 'womens-pku-cup') => importAssignmentWorkbook(data, file, season, event);
 
 describe('五人制三岗位选派 Excel', () => {
+  it.each([true, false])('组别整列省略或留空均能导入，并在重传时保留已有组别：省略=%s', (omitted) => {
+    const data = seed();
+    upload(data, workbook([header, values]));
+    const match = data.matches[0]; match.group = 'F'; match.stage = 'semifinal';
+    const columns = [...header], row = [...values]; row[3] = ''; row[8] = '测试新三裁';
+    if (omitted) { columns.splice(3, 1); row.splice(3, 1); }
+    expect(upload(data, workbook([columns, row]))).toMatchObject({ added: 0, updated: 1 });
+    expect(data.matches).toHaveLength(1);
+    expect(data.matches[0]).toMatchObject({ id: match.id, group: 'F', stage: 'semifinal' });
+    expect(data.matches[0].officials[2].name).toBe('测试新三裁');
+    const empty = seed(); upload(empty, workbook([columns, row]));
+    expect(empty.matches[0]).toMatchObject({ group: '', stage: 'group' });
+  });
+
+  it.each(['常规赛', '排位赛', '半决赛', '决赛'])('可选比赛类别独立设置五人制阶段：%s', (stage) => {
+    const data = seed(); upload(data, workbook([header, values]));
+    const match = data.matches[0]; match.group = 'F'; match.stage = 'semifinal';
+    const columns = [...header]; columns[3] = '比赛类别';
+    const row = [...values]; row[3] = stage;
+    expect(upload(data, workbook([columns, row]))).toMatchObject({ added: 0, updated: 1 });
+    expect(data.matches[0]).toMatchObject({ group: 'F', stage: ({ 常规赛: 'group', 排位赛: 'placement', 半决赛: 'semifinal', 决赛: 'final' })[stage] });
+  });
+
+  it('同时间对阵存在多个组别时不猜测更新，明确组别后只更新对应比赛', () => {
+    const data = seed(); upload(data, workbook([header, values]));
+    data.matches[0].group = 'F';
+    data.matches.push({ ...structuredClone(data.matches[0]), id: 'other-match', group: 'G' });
+    const row = [...values]; row[3] = '';
+    expect(() => upload(data, workbook([header, row]))).toThrow(/多场比赛.*组别/);
+    row[3] = 'G'; row[8] = '另一个三裁';
+    expect(upload(data, workbook([header, row]))).toMatchObject({ added: 0, updated: 1 });
+    expect(data.matches[0].officials[2].name).toBe('测试裁判丙');
+    expect(data.matches[1].officials[2].name).toBe('另一个三裁');
+  });
+
+  it.each(['比赛类别', '组别', '省略'])('十一人制按列名识别并更新原场次，保留晋级组别及回避设定：%s', (groupHeader) => {
+    const data = seed();
+    const columns = ['日期', '时间', '场地', '组别', '主队', '客队', '主裁判', '第一助理', '第二助理', '第四官员', '回避', '备注'];
+    const row = ['11.14', '18-20', '测试场', 'F', '甲', '乙', '原主裁', '', '', '', '', ''];
+    upload(data, workbook([columns, row]), 'freshmen-cup');
+    const match = data.matches[0]; match.stage = 'placement'; match.placementMode = 'grouped'; match.avoidanceOverride = { mode: 'replace', colleges: ['测试学院'] };
+    if (groupHeader === '省略') { columns.splice(3, 1); row.splice(3, 1); row[5] = '新主裁'; }
+    else { columns[3] = groupHeader; row[3] = groupHeader === '组别' ? '' : '排位赛'; row[6] = '新主裁'; }
+    expect(upload(data, workbook([columns, row]), 'freshmen-cup')).toMatchObject({ added: 0, updated: 1 });
+    expect(data.matches).toHaveLength(1);
+    expect(data.matches[0]).toMatchObject({ id: match.id, group: 'F', stage: 'placement', placementMode: 'grouped', avoidanceOverride: match.avoidanceOverride });
+    expect(data.matches[0].officials.map(o => o.name)).toEqual(['新主裁', '', '', '']);
+  });
+
+  it('十一人制“十二进八”识别为淘汰赛，组别与阶段可分列，备注随列移动', () => {
+    const data = seed();
+    upload(data, workbook([['日期', '时间', '主队', '客队', '主裁判', '组别', '比赛类别', '备注'], ['11.14', '18-20', '甲', '乙', '测试主裁', 'F', '十二进八', '恶劣天气']]), 'freshmen-cup');
+    expect(data.matches[0]).toMatchObject({ group: 'F', stage: 'knockout', note: '恶劣天气', bonuses: ['badWeather'] });
+    expect(data.matches[0].officials[0].name).toBe('测试主裁');
+  });
+
+  it('不会将其他赛季同日期对阵误认成本赛季比赛', () => {
+    const data = seed(); upload(data, workbook([header, values]));
+    data.matches[0].season = '2025–26';
+    expect(upload(data, workbook([header, values]))).toMatchObject({ added: 1, updated: 0 });
+    expect(data.matches).toHaveLength(2);
+  });
+
   it.each([
     ['一裁', '二裁', '三裁'],
     ['第一裁判', '第二裁判', '第三裁判'],
