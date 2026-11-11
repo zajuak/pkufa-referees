@@ -3,6 +3,7 @@ dist/
 api-dist/
 pages-dist/
 campus-dist/
+campus-server/
 .wrangler/
 .private/
 .env*

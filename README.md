@@ -4,7 +4,7 @@
 
 首页保留每周裁判选派表。GitHub Pages 提供网站，用户自己的 Cloudflare Workers + D1 保存业务数据。
 
-校内服务器副本：[裁判网站](http://10.129.83.25:8081/) · [管理员入口](http://10.129.83.25:8081/#/admin)。页面部署在服务器，浏览器直接访问同一个云端 API，两处共用实时数据、管理员账号和历史版本；服务器不保存另一套业务库。此内网地址需在能访问该服务器的网络中使用。
+校内服务器独立副本：[裁判网站](http://10.129.83.25:8081/) · [管理员入口](http://10.129.83.25:8081/#/admin)。已复制云端当时的完整业务数据，之后由服务器本地 API、SQLite 数据库和独立登录配置运行，两处修改互不影响。此内网地址需在能访问该服务器的网络中使用。
 
 - **公开访问**：每周赛程、裁判选派、赛事/周次/场地/姓名筛选、选派表和个人日历导出、管理办法。
 - **裁判员查询**：无需密码，直接按姓名查询积分、工资、执裁与奖惩明细。
@@ -78,10 +78,14 @@ npx wrangler deploy --config cloudflare/wrangler.jsonc
 根路径版本使用独立输出目录，不改 GitHub Pages 构建：
 
 ```sh
-VITE_GITHUB_PAGES=true VITE_BASE_PATH=/ VITE_API_BASE=https://pkufa-referees-api.junkaizhao404.workers.dev npm run build:campus
-node server/static.mjs
+VITE_GITHUB_PAGES=true VITE_BASE_PATH=/ VITE_API_BASE= npm run build:campus
+npm run build:campus-server
 ```
 
-服务器上使用 `/opt/pkufa-referees/releases/<版本>/` 保存 `campus-dist/` 和 `server/static.mjs`，`current` 链接指向当前版本；独立 Node 运行时位于 `/opt/pkufa-referees/runtime/`。`deploy/pkufa-referees.service` 提供开机启动和失败重启，监听 8081，不占用现有积分榜的 8080。`/health` 返回网站发布版本；更新后通过 `systemctl restart pkufa-referees` 生效，回退时把 `current` 指向保留的旧版本后重启。
+服务器上使用 `/opt/pkufa-referees/releases/<版本>/` 保存 `campus-dist/` 和 `campus-server/campus.mjs`，`current` 链接指向当前版本；独立 Node 24 运行时位于 `/opt/pkufa-referees/runtime/`。`deploy/pkufa-referees.service` 提供开机启动和失败重启，监听 8081，不占用现有积分榜的 8080。`/health` 返回 `dataMode: independent` 和网站发布版本。
 
-云端 API 的 `ALLOWED_ORIGIN` 同时保留 GitHub Pages 和校内服务器地址。修改服务器访问地址后需要同步更新此白名单并发布 Worker；无需向服务器复制管理员密码、云端 Secret 或业务数据。
+独立业务库为 `/var/lib/pkufa-referees/referees.sqlite`（包含每次保存的完整历史快照）；只在空库首次启动时读取 `/var/lib/pkufa-referees/initial-copy.json`，以后更新或重启不重新导入、不覆盖本地修改。初始副本包含赛程、选派、裁判档案、积分工资、奖惩、请假、球衣绑定、管理办法及工资标准，导出文件和数据库不进入源码仓库或静态目录。历史版本从这次复制的版本起独立积累，旧云端历史仍保留在原站。
+
+`/etc/pkufa-referees.env` 保存仅该服务器使用的 `ADMIN_PASSWORD_HASH` 和随机 `SESSION_SECRET`，权限为 root 0600；不复用云端会话密钥，不自动复制查询账号凭据。管理员初始口令沿用已有口令，裁判员仍按姓名公开查询。备份或迁移时需保留业务库（通过 SQLite 备份或停服后复制）和登录配置。更新后通过 `systemctl restart pkufa-referees` 生效，回退时应选择支持独立数据库的旧版本再重启，不能切回会写云端的共享版本。
+
+独立前端只请求同源 `/api`，服务端不转发请求到云端；云端 `ALLOWED_ORIGIN` 仅允许原 GitHub Pages，防止旧服务器页面误写云端。
