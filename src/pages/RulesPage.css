@@ -323,6 +323,12 @@
   }
 }
 
+@media (max-width: 900px) {
+  .rules-chapter {
+    scroll-margin-top: 68px;
+  }
+}
+
 @media (max-width: 640px) {
   .rules-source-bar {
     align-items: stretch;
@@ -355,10 +361,6 @@
   .rules-toc a {
     min-height: 38px;
     padding: 7px 9px;
-  }
-
-  .rules-chapter {
-    scroll-margin-top: 14px;
   }
 
   .rules-chapter-header {

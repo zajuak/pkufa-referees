@@ -1,4 +1,6 @@
 import './RulesPage.css';
+import { useEffect } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { BookOpen, Download, FileText } from 'lucide-react';
 import { PageHeader } from '../components/ui';
 import { assetUrl, useData } from '../hooks/useData';
@@ -218,10 +220,20 @@ const chapters: RuleChapter[] = [
 
 export const defaultRules: RulesData = { chapters, wageTables };
 
+function scrollToChapter(id: string) {
+  document.getElementById(id)?.scrollIntoView({ block: 'start' });
+}
+
 export default function RulesPage() {
   const { data } = useData();
+  const { hash } = useLocation();
   const rules = data!.rules || defaultRules;
   const wageStandards: WageStandards = { ...defaultWageStandards, ...data!.wageStandards };
+  useEffect(() => {
+    if (!hash) return;
+    const frame = requestAnimationFrame(() => scrollToChapter(hash.slice(1)));
+    return () => cancelAnimationFrame(frame);
+  }, [hash]);
   return (
     <div className="page rules-page">
       <PageHeader
@@ -253,10 +265,15 @@ export default function RulesPage() {
         <ol>
           {rules.chapters.map((chapter) => (
             <li key={chapter.id}>
-              <a href={`#${chapter.id}`}>
+              <Link to={`#${chapter.id}`} onClick={(event) => {
+                if (hash === `#${chapter.id}` && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+                  event.preventDefault();
+                  scrollToChapter(chapter.id);
+                }
+              }}>
                 <span>{chapter.numeral}</span>
                 {chapter.title}
-              </a>
+              </Link>
             </li>
           ))}
         </ol>
