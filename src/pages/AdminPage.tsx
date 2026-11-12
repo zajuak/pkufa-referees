@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { BookOpen, CalendarPlus, CheckCircle2, Download, KeyRound, ListOrdered, LogOut, Plus, RotateCcw, Save, Settings2, ShieldCheck, Trash2, UserPlus, UsersRound, WalletCards } from 'lucide-react';
 import { api, useData } from '../hooks/useData';
-import { channelName, CURRENT_SEASON, defaultWageStandards, effectiveMatchStatus, formatDate, formatMoney, getChannelSummary, getUpgradeRecommendation } from '../domain/calculations';
-import { eventName, eventsForChannel } from '../domain/competitions';
+import { channelName, defaultWageStandards, effectiveMatchStatus, formatDate, formatMoney, getChannelSummary, getUpgradeRecommendation } from '../domain/calculations';
+import { eventName, getMatchEvent } from '../domain/competitions';
 import type { Adjustment, Channel, CompetitionEvent, Level, Match, RuleBlock, RulesData, WageStandards } from '../domain/types';
 import { ChannelBadge, PageHeader, StatusBadge } from '../components/ui';
 import AdminMatchForm from '../components/AdminMatchForm';
@@ -86,22 +86,24 @@ function MatchManager() {
 
 function AdjustmentManager() {
   const { data, refresh } = useData();
+  const [matchId, setMatchId] = useState('');
   const [refereeId, setRefereeId] = useState('');
-  const [channel, setChannel] = useState<Channel>('eleven');
-  const [season, setSeason] = useState(CURRENT_SEASON);
-  const [event, setEvent] = useState<CompetitionEvent>('freshmen-cup');
-  const [type, setType] = useState<'reward' | 'penalty'>('reward');
+  const [type, setType] = useState<'reward' | 'penalty'>('penalty');
   const [points, setPoints] = useState(0);
   const [wage, setWage] = useState(0);
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState('');
-  const referee = data!.referees.find((item) => item.id === refereeId);
+  const matches = data!.matches.filter((item) => getMatchEvent(item)).sort((a, b) => b.date.localeCompare(a.date) || a.time.localeCompare(b.time));
+  const match = matches.find((item) => item.id === matchId);
+  const assigned = data!.referees.filter((person) => match?.officials.some((official) => official.refereeId === person.id) && person.channels[match.channel]).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+  const validReferee = assigned.some((person) => person.id === refereeId);
+  const matchLabel = (item: Match) => `${formatDate(item.date, true)} ${item.time} · ${item.home && item.away ? `${item.home}—${item.away}` : item.group || item.competition}`;
   const submit = async (formEvent: FormEvent) => {
     formEvent.preventDefault(); setMessage('');
+    if (!match || !validReferee) { setMessage('请选择关联比赛及该场已选派的裁判员。'); return; }
     if (!points && !wage) { setMessage('请至少填写一项积分或工资变动。'); return; }
     try {
-      await api('/api/adjustments', { method: 'POST', body: JSON.stringify({ refereeId, channel, season, event, type, points, wage, date, reason }) });
+      await api('/api/adjustments', { method: 'POST', body: JSON.stringify({ matchId, refereeId, type, points, wage, reason }) });
       await refresh(); setReason(''); setPoints(0); setWage(0); setMessage('奖惩已登记，积分与工资表已更新。');
     } catch (error) { setMessage(error instanceof Error ? error.message : '保存失败'); }
   };
@@ -111,13 +113,28 @@ function AdjustmentManager() {
   };
   return (
     <section className="admin-section">
-      <div className="admin-section-heading"><div><h2>奖惩登记</h2><p>正数登记奖励，切换为“处罚”后系统自动按负值核算。</p></div></div>
+      <div className="admin-section-heading"><div><h2>奖惩登记</h2><p>先选择关联比赛，再为该场已选派的裁判员登记奖励或处罚。</p></div></div>
       <form className="admin-form horizontal-form" onSubmit={(event) => void submit(event)}>
-        <div className="form-grid three-cols"><label>裁判员<select required value={refereeId} onChange={(event) => { const selected = data!.referees.find((item) => item.id === event.target.value); setRefereeId(event.target.value); const nextChannel = selected?.channels.eleven ? 'eleven' : 'five'; setChannel(nextChannel); setEvent(nextChannel === 'eleven' ? 'freshmen-cup' : 'womens-pku-cup'); }}><option value="">请选择裁判员</option>{[...data!.referees].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>渠道<select value={channel} onChange={(change) => { const nextChannel = change.target.value as Channel; setChannel(nextChannel); setEvent(nextChannel === 'eleven' ? 'freshmen-cup' : 'womens-pku-cup'); }}>{referee?.channels.eleven && <option value="eleven">十一人制</option>}{referee?.channels.five && <option value="five">五人制</option>}</select></label><label>类型<select value={type} onChange={(event) => setType(event.target.value as 'reward' | 'penalty')}><option value="reward">奖励</option><option value="penalty">处罚</option></select></label><label>赛事归属<select value={event} onChange={(change) => setEvent(change.target.value as CompetitionEvent)}>{eventsForChannel(channel).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>赛季<select value={season} onChange={(event) => setSeason(event.target.value)}><option>{CURRENT_SEASON}</option><option>2025–26</option></select></label><label>{type === 'penalty' ? '扣除积分' : '奖励积分'}<input type="number" min="0" step="0.1" value={points} onChange={(event) => setPoints(Number(event.target.value))} /></label><label>{type === 'penalty' ? '扣除工资（元）' : '奖励工资（元）'}<input type="number" min="0" step="0.5" value={wage} onChange={(event) => setWage(Number(event.target.value))} /></label><label>日期<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label className="span-two">奖惩事由<input required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例如：临时替补奖励 / 技术性失误扣罚" /></label></div>
-        <p className="adjustment-help">{type === 'penalty' ? '处罚请输入需要扣除的正数，保存后系统自动记为负积分、负工资。' : '奖励将自动加入对应渠道的当前积分与所选赛季工资。'}</p>
-        {message && <p className="form-message">{message}</p>}<div className="form-actions"><button className="button primary" disabled={!refereeId}><Plus size={16} />登记并自动核算</button></div>
+        <div className="form-grid three-cols">
+          <label className="span-two">关联比赛<select required value={matchId} onChange={(event) => { setMatchId(event.target.value); setRefereeId(''); setMessage(''); }}><option value="">请选择比赛</option>{matches.map((item) => <option key={item.id} value={item.id}>{matchLabel(item)} · {eventName(getMatchEvent(item)!)}</option>)}</select></label>
+          <label>裁判员<select required disabled={!match} value={validReferee ? refereeId : ''} onChange={(event) => setRefereeId(event.target.value)}><option value="">{match ? '请选择该场裁判员' : '请先选择比赛'}</option>{assigned.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label>赛事与赛制<input readOnly value={match ? `${eventName(getMatchEvent(match)!)} · ${channelName(match.channel)}` : ''} /></label>
+          <label>赛季<input readOnly value={match ? match.season || data!.meta.season : ''} /></label>
+          <label>比赛日期<input type="date" readOnly value={match?.date || ''} /></label>
+          <label>类型<select value={type} onChange={(event) => setType(event.target.value as 'reward' | 'penalty')}><option value="reward">奖励</option><option value="penalty">处罚</option></select></label>
+          <label>{type === 'penalty' ? '扣除积分' : '奖励积分'}<input type="number" min="0" step="0.1" value={points} onChange={(event) => setPoints(Number(event.target.value))} /></label>
+          <label>{type === 'penalty' ? '扣除工资（元）' : '奖励工资（元）'}<input type="number" min="0" step="0.5" value={wage} onChange={(event) => setWage(Number(event.target.value))} /></label>
+          <label className="span-two">奖惩事由<input required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="填写该场比赛中发生的具体事由" /></label>
+        </div>
+        {match && !assigned.length && <p className="adjustment-help">该场尚未选派裁判员，请先在“赛程与选派”中完成选派。</p>}
+        <p className="adjustment-help">奖惩自动计入关联比赛的赛季、赛事和赛制。{type === 'penalty' ? '处罚填写正数，保存后自动记为负积分、负工资。' : '奖励填写正数，保存后自动加入积分和工资。'}</p>
+        {message && <p className="form-message">{message}</p>}<div className="form-actions"><button className="button primary" disabled={!match || !validReferee}><Plus size={16} />登记并自动核算</button></div>
       </form>
-      <div className="admin-adjustments"><h3>已登记记录 <span>{data!.adjustments.length}</span></h3>{data!.adjustments.length ? [...data!.adjustments].reverse().map((item) => { const person = data!.referees.find((referee) => referee.id === item.refereeId); return <div className="adjustment-row" key={item.id}><span className={`adjustment-type ${item.type}`}>{item.type === 'reward' ? '奖' : '惩'}</span><div><strong>{person?.name} · {item.reason}</strong><small>{item.season} · {channelName(item.channel)} · {item.event ? eventName(item.event) : '未归赛事'} · {formatDate(item.date, true)}</small></div><span>{item.points >= 0 ? '+' : ''}{item.points} 分</span><strong>{item.wage >= 0 ? '+' : ''}{formatMoney(item.wage)}</strong><button className="icon-button danger-text" onClick={() => void remove(item)} aria-label="删除奖惩"><Trash2 size={16} /></button></div>; }) : <p className="inline-empty">暂无手工奖惩记录</p>}</div>
+      <div className="admin-adjustments"><h3>已登记记录 <span>{data!.adjustments.length}</span></h3>{data!.adjustments.length ? [...data!.adjustments].reverse().map((item) => {
+        const person = data!.referees.find((referee) => referee.id === item.refereeId);
+        const relatedMatch = data!.matches.find((game) => game.id === item.matchId);
+        return <div className="adjustment-row" key={item.id}><span className={`adjustment-type ${item.type}`}>{item.type === 'reward' ? '奖' : '惩'}</span><div><strong>{person?.name} · {item.reason}</strong><small>{item.season} · {channelName(item.channel)} · {item.event ? eventName(item.event) : '未归赛事'} · {relatedMatch ? matchLabel(relatedMatch) : '历史记录 · 未关联比赛'}</small></div><span>{item.points >= 0 ? '+' : ''}{item.points} 分</span><strong>{item.wage >= 0 ? '+' : ''}{formatMoney(item.wage)}</strong><button className="icon-button danger-text" onClick={() => void remove(item)} aria-label="删除奖惩"><Trash2 size={16} /></button></div>;
+      }) : <p className="inline-empty">暂无奖惩记录</p>}</div>
     </section>
   );
 }

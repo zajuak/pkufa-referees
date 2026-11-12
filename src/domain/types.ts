@@ -76,6 +76,8 @@ export interface Match {
 
 export interface Adjustment {
   id: string;
+  /** Required for new registrations; older backups may contain unbound records. */
+  matchId?: string;
   refereeId: string;
   channel: Channel;
   season: string;

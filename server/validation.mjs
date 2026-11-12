@@ -197,6 +197,10 @@ export function validateSnapshot(input) {
   const adjustmentIds = new Set();
   for (const a of value.adjustments) {
     if (!a.id || adjustmentIds.has(a.id) || !value.referees.some((r) => r.id === a.refereeId && r.channels[a.channel]) || !finite(a.points) || !finite(a.wage) || !date(a.date) || !['reward', 'penalty'].includes(a.type) || typeof a.reason !== 'string' || typeof a.season !== 'string') throw new Error('奖惩记录格式有误');
+    if (a.matchId !== undefined) {
+      const match = value.matches.find((item) => item.id === a.matchId);
+      if (typeof a.matchId !== 'string' || !match || a.channel !== match.channel || a.season !== (match.season || value.meta.season) || a.event !== getMatchEvent(match) || a.date !== match.date) throw new Error('奖惩记录与关联比赛不一致');
+    }
     adjustmentIds.add(a.id);
   }
   const leaveIds = new Set();

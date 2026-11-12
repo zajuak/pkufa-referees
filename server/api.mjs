@@ -9,6 +9,7 @@ import { importAssignmentWorkbook } from './assignment-import.mjs';
 import { additionalAssistantRoles, assignmentIssues, matchInterval } from '../src/domain/scheduling.ts';
 import { applyAdvancement } from '../src/domain/avoidance.ts';
 import { previewStandingsResults } from '../src/domain/standings-import.ts';
+import { getMatchEvent } from '../src/domain/competitions.ts';
 import { normalizeTeamName, teamColor } from '../src/domain/teams.ts';
 import { Router } from './router.mjs';
 import { normalizeCollegeName, normalizeColleges, normalizeMatchAvoidance, normalizeGroupOrder, validateMatchAvoidance, validateSnapshot } from './validation.mjs';
@@ -31,6 +32,15 @@ export async function handleApi(request, repository, auth) {
     if (Number(supplied) !== (before.revision || 0)) throw Object.assign(new Error('数据已被其他窗口更新，请刷新后重新编辑；本次修改尚未保存'), { status: 409 });
     recalculateMatchWeeks(store.matches, store.meta.season);
     recalculateMatchBonuses(store.matches);
+    for (const adjustment of store.adjustments) {
+      if (!adjustment.matchId) continue;
+      const match = store.matches.find((item) => item.id === adjustment.matchId);
+      if (!match) throw new Error('奖惩关联的比赛不存在，请先处理该比赛的奖惩记录');
+      if (match.channel !== adjustment.channel) throw new Error('已登记奖惩的比赛不能修改赛制，请先处理相关奖惩记录');
+      const event = getMatchEvent(match);
+      if (!event || eventChannels[event] !== match.channel || !store.referees.some((referee) => referee.id === adjustment.refereeId && referee.channels[match.channel])) throw new Error('该比赛的赛制或赛事修改与已登记奖惩不兼容');
+      Object.assign(adjustment, { channel: match.channel, season: match.season || store.meta.season, event, date: match.date });
+    }
     store.revision = (before.revision || 0) + 1;
     store.updatedAt = new Date().toISOString();
     await repository.save(store, before.revision || 0, `${request.method} ${new URL(request.url).pathname}`);
@@ -441,6 +451,9 @@ app.put('/api/matches/:id', requireAdmin, async (req, res, next) => {
 app.delete('/api/matches/:id', requireAdmin, async (req, res) => {
   const index = store.matches.findIndex((item) => item.id === req.params.id);
   if (index < 0) return res.status(404).json({ error: '未找到该比赛' });
+  if (store.adjustments.some((item) => item.matchId === req.params.id)) {
+    return res.status(400).json({ error: '该比赛已关联奖惩记录，请先删除相关奖惩记录后再删除比赛' });
+  }
   if (store.matches.some((item) => item.id !== req.params.id
     && [item.homeSource, item.awaySource].some((source) => source?.kind === 'match' && source.matchId === req.params.id))) {
     return res.status(400).json({ error: '该比赛仍被后续对阵引用，请先调整晋级来源' });
@@ -492,24 +505,27 @@ app.put('/api/referees/:id/level', requireAdmin, async (req, res, next) => {
 
 app.post('/api/adjustments', requireAdmin, async (req, res, next) => {
   try {
+    const match = store.matches.find((item) => item.id === req.body?.matchId);
+    if (!match) throw new Error('请选择有效的关联比赛');
     const referee = store.referees.find((item) => item.id === req.body?.refereeId);
     if (!referee) throw new Error('请选择有效裁判员');
-    const channel = req.body?.channel === 'five' ? 'five' : 'eleven';
+    if (!match.officials.some((official) => official.refereeId === referee.id)) throw new Error('只能为该场比赛已选派的裁判员登记奖惩');
+    const channel = match.channel;
     if (!referee.channels[channel]) throw new Error('该裁判没有对应渠道档案');
-    const event = text(req.body?.event, 30);
-    if (event && !Object.hasOwn(eventChannels, event)) throw new Error('请选择赛事归属');
-    if (event && eventChannels[event] !== channel) throw new Error('赛事归属与渠道不匹配');
+    const event = getMatchEvent(match);
+    if (!event || eventChannels[event] !== channel) throw new Error('关联比赛的赛事归属不正确');
     const reason = text(req.body?.reason, 300);
     if (!reason) throw new Error('请填写奖惩事由');
     const sign = req.body?.type === 'penalty' ? -1 : 1;
     if (!number(req.body?.points) && !number(req.body?.wage)) throw new Error('请至少填写一项积分或工资变动');
     const adjustment = {
       id: `adjustment-${randomUUID()}`,
+      matchId: match.id,
       refereeId: referee.id,
       channel,
-      season: text(req.body?.season, 30) || '2026–27',
-      ...(event ? { event } : {}),
-      date: text(req.body?.date, 10) || new Date().toISOString().slice(0, 10),
+      season: match.season || store.meta.season,
+      event,
+      date: match.date,
       type: req.body?.type === 'penalty' ? 'penalty' : 'reward',
       points: sign * Math.abs(number(req.body?.points)),
       wage: sign * Math.abs(number(req.body?.wage)),
