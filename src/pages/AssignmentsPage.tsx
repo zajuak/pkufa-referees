@@ -7,7 +7,7 @@ import { availableSeasons, CURRENT_SEASON, effectiveMatchStatus, formatDate, sta
 import { competitionEvents, getMatchEvent } from '../domain/competitions';
 import { automaticTimeBonuses, timeBonusLabels } from '../domain/time-bonuses';
 import { matchStageLabel } from '../domain/stages';
-import { seasonWeekRange } from '../domain/weeks';
+import { matchSemester, semesterLabel, semesterWeekRange, type Semester } from '../domain/weeks';
 import { exportAssignments, exportCalendar } from '../domain/downloads';
 import { additionalAssistantRoles, usesAdditionalAssistants } from '../domain/scheduling';
 import { matchAvoidanceSummary } from '../domain/avoidance';
@@ -27,10 +27,17 @@ export default function AssignmentsPage() {
   const channel = params.get('channel') || 'all';
   const event = params.get('event') || 'all';
   const venue = params.get('venue') || 'all';
-  const categoryMatches = useMemo(() => data!.matches
+  const seasonMatches = useMemo(() => data!.matches
     .filter((match) => (match.season || CURRENT_SEASON) === season)
     .filter((match) => channel === 'all' || match.channel === channel)
     .filter((match) => event === 'all' || getMatchEvent(match) === event), [data, season, channel, event]);
+  const todaySemester = matchSemester({ date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date()) });
+  const latestMatch = [...seasonMatches].sort((a, b) => b.date.localeCompare(a.date))[0];
+  const defaultSemester = season === data!.meta.season && seasonMatches.some((match) => matchSemester(match) === todaySemester)
+    ? todaySemester : latestMatch ? matchSemester(latestMatch) : event === 'mens-pku-cup' ? 'spring' : event === 'freshmen-cup' ? 'autumn' : todaySemester;
+  const requestedSemester = params.get('semester');
+  const semester: Semester = requestedSemester === 'spring' || requestedSemester === 'autumn' ? requestedSemester : defaultSemester;
+  const categoryMatches = useMemo(() => seasonMatches.filter((match) => matchSemester(match) === semester), [seasonMatches, semester]);
   const weeks = useMemo(() => [...new Set(categoryMatches.map((match) => match.week))].sort((a, b) => b - a), [categoryMatches]);
   const week = params.get('week') || String(weeks[0] || 'all');
   const venues = useMemo(() => [...new Set(categoryMatches.map((match) => match.venue))].sort(), [categoryMatches]);
@@ -46,11 +53,12 @@ export default function AssignmentsPage() {
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(params);
     next.set(key, value);
-    if (['season', 'channel', 'event'].includes(key)) { next.delete('week'); next.delete('venue'); }
+    if (['season', 'semester', 'channel', 'event'].includes(key)) { next.delete('week'); next.delete('venue'); }
+    if (key === 'season') next.delete('semester');
     setParams(next);
   };
   const weekRange = (value: number) => {
-    const dates = seasonWeekRange(value, season, data!.matches, data!.meta.season);
+    const dates = semesterWeekRange(value, season, semester, data!.matches, data!.meta.season);
     if (!dates) return '';
     const short = (date: string) => `${Number(date.slice(5, 7))}.${Number(date.slice(8, 10))}`;
     return `${short(dates[0])} — ${short(dates[1])}`;
@@ -60,9 +68,10 @@ export default function AssignmentsPage() {
     <div className="page assignments-page">
       <PageHeader eyebrow="ASSIGNMENT BOARD" title="每周裁判选派" description="秋季男足新生杯、春季男足北大杯、全学年女足北大杯。" actions={<span className="season-pill"><CalendarDays size={16} />{season} 学年</span>} />
       <section className="filter-panel">
+        <div className="filter-row"><div className="segmented" role="group" aria-label="学期筛选">{(['autumn', 'spring'] as const).map((value) => <button key={value} aria-pressed={semester === value} className={semester === value ? 'active' : ''} onClick={() => update('semester', value)}>{semesterLabel(value)}</button>)}</div></div>
         <div className="week-tabs" role="group" aria-label="选择周次">
           {weeks.map((value) => <button key={value} className={week === String(value) ? 'week-tab active' : 'week-tab'} onClick={() => update('week', String(value))}><span>第 {value} 周</span><small>{weekRange(value)}</small></button>)}
-          <button className={week === 'all' ? 'week-tab active' : 'week-tab'} onClick={() => update('week', 'all')}><span>全部周次</span><small>完整赛程</small></button>
+          <button className={week === 'all' ? 'week-tab active' : 'week-tab'} onClick={() => update('week', 'all')}><span>全部周次</span><small>本学期赛程</small></button>
         </div>
         <div className="filter-row"><label className="select-field"><span>赛季</span><select value={season} onChange={(e) => update('season', e.target.value)}>{availableSeasons(data!.matches, data!.adjustments).map((s) => <option key={s}>{s}</option>)}</select></label>
           <div className="segmented" role="group" aria-label="赛制筛选">
@@ -71,9 +80,9 @@ export default function AssignmentsPage() {
           <label className="select-field"><span>赛事</span><select value={event} onChange={(change) => update('event', change.target.value)}><option value="all">全部赛事</option>{competitionEvents.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.term}</option>)}</select></label>
           <label className="select-field"><span>场地</span><select value={venue} onChange={(change) => update('venue', change.target.value)}><option value="all">全部场地</option>{venues.map((item) => <option key={item}>{item}</option>)}</select></label>
         </div>
-        <div className="filter-row assignment-search"><label className="select-field grow"><span>查找</span><input aria-label="搜索选派姓名或球队" placeholder="裁判姓名或球队" value={query} onChange={(e) => update('q', e.target.value)} /></label><label className="select-field"><span>状态</span><select value={statusFilter} onChange={(e) => update('status', e.target.value)}><option value="all">全部状态</option><option value="scheduled">待进行</option><option value="completed">已完成</option><option value="cancelled">已取消</option></select></label><button className="button secondary" disabled={!filtered.length} onClick={() => exportAssignments(filtered)}><Download size={16} />导出选派表</button><button className="button secondary" disabled={!filtered.length} onClick={() => exportCalendar(filtered, query.trim() || '裁判赛程')}>导出日历</button></div>
+        <div className="filter-row assignment-search"><label className="select-field grow"><span>查找</span><input aria-label="搜索选派姓名或球队" placeholder="裁判姓名或球队" value={query} onChange={(e) => update('q', e.target.value)} /></label><label className="select-field"><span>状态</span><select value={statusFilter} onChange={(e) => update('status', e.target.value)}><option value="all">全部状态</option><option value="scheduled">待进行</option><option value="completed">已完成</option><option value="cancelled">已取消</option></select></label><button className="button secondary" disabled={!filtered.length} onClick={() => exportAssignments(filtered)}><Download size={16} />导出选派表</button><button className="button secondary" disabled={!filtered.length} onClick={() => exportCalendar(filtered, `${season}${semesterLabel(semester)}${query.trim() || '裁判赛程'}`)}>导出日历</button></div>
       </section>
-      <div className="schedule-heading"><div><CalendarCheck size={20} /><h2>{week === 'all' ? '全部赛程' : `第 ${week} 周赛程`}</h2></div><span>共 {filtered.length} 场比赛 · 按时间正序</span></div>
+      <div className="schedule-heading"><div><CalendarCheck size={20} /><h2>{semesterLabel(semester)} · {week === 'all' ? '全部赛程' : `第 ${week} 周赛程`}</h2></div><span>共 {filtered.length} 场比赛 · 按时间正序</span></div>
       {filtered.length ? <section className="assignment-table-wrap">
         <table className={showAdditional ? 'assignment-table with-additional' : 'assignment-table'}>
           <thead><tr><th>日期</th><th>时间</th><th>赛制 / 赛事</th><th>场地</th><th>组别 / 阶段</th><th>对阵</th>{roleLabels.map((label) => <th key={label}>{label}</th>)}<th>状态 / 备注</th><th className="assignment-avoidance-cell">回避</th></tr></thead>
@@ -100,7 +109,7 @@ export default function AssignmentsPage() {
             </tr>;
           })}</tbody>
         </table>
-      </section> : <EmptyState icon={<SearchX />} title="没有符合条件的比赛" description="试试切换周次、赛制、赛事或场地筛选。" />}
+      </section> : <EmptyState icon={<SearchX />} title={`${semesterLabel(semester)}没有符合条件的比赛`} description="试试切换学期、周次、赛制、赛事或场地筛选。" />}
       <p className="data-footnote">数据更新至 {new Date(data!.updatedAt || data!.meta.importedAt).toLocaleDateString('zh-CN')} · 未选派的裁判岗位留空；回避学院按本场设置或分组及晋级关系汇总，“待设置”或“资料不全”表示尚不能完整判定。</p>
     </div>
   );
