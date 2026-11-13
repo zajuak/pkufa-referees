@@ -1,8 +1,10 @@
+import { formatPoints } from '../domain/calculations';
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpRight, Award, CalendarClock, ClipboardCheck, TrendingUp, WalletCards } from 'lucide-react';
 import { useData } from '../hooks/useData';
 import { availableSeasons, channelName, CURRENT_SEASON, formatDate, formatMoney, getChannelSummary, getCompetitionSummaries, getRefereeMatches, getSeasonWage, getUpgradeRecommendation, HISTORY_SEASON, nextLevelTarget, officialBonusDescription, roleName } from '../domain/calculations';
+import { officialFraction } from '../domain/workload';
 import { eventName, eventsForChannel } from '../domain/competitions';
 import type { Channel, CompetitionEvent } from '../domain/types';
 import { ChannelBadge, EmptyState, PageHeader, StatCard } from '../components/ui';
@@ -39,10 +41,10 @@ export default function RefereeDetailPage() {
         <label className="season-select"><span>工资赛季</span><select value={season} onChange={(event) => { setSeason(event.target.value); setSelectedEvent('all'); }}>{seasons.map((item) => <option key={item} value={item}>{item}{item === CURRENT_SEASON ? ' · 本赛季' : ' · 历史赛季'}</option>)}</select></label>
       </div>
       <section className="stats-grid four detail-stats">
-        <StatCard label={`${channelName(activeChannel)}当前积分`} value={summary.points.toFixed(1)} suffix="分" tone="red" />
+        <StatCard label={`${channelName(activeChannel)}当前积分`} value={formatPoints(summary.points)} suffix="分" tone="red" />
         <StatCard label="当前等级" value={summary.level} suffix="级" />
         <StatCard label={`${season} 工资`} value={formatMoney(wage.total)} tone="green" />
-        <StatCard label={`${season} 已完成`} value={wage.contributions.length} suffix="场" />
+        <StatCard label={`${season} 已完成`} value={wage.contributions.reduce((sum, item) => sum + officialFraction(item.official), 0)} suffix="场" />
       </section>
       {season === CURRENT_SEASON ? <section className="competition-section">
         <div className="schedule-heading"><div><WalletCards size={20} /><h2>分赛事当前积分与工资</h2></div><span>不含历史基础积分</span></div>
@@ -50,8 +52,8 @@ export default function RefereeDetailPage() {
           const item = competitionSummaries.find((summaryItem) => summaryItem.event === config.id)!;
           return <button key={config.id} className={`competition-card${selectedEvent === config.id ? ' active' : ''}`} aria-pressed={selectedEvent === config.id} onClick={() => setSelectedEvent(selectedEvent === config.id ? 'all' : config.id)}>
             <span className="competition-term">{config.term}</span><h3>{config.name}</h3>
-            <div className="competition-values"><span><small>当前赛事积分</small><strong>{item.points.toFixed(1)} <em>分</em></strong></span><span><small>当前赛事工资</small><strong>{formatMoney(item.total)}</strong></span></div>
-            <p>{item.contributions.length} 场已结算 · 基础工资 {formatMoney(item.matchWage)} · 补贴 {formatMoney(item.bonusWage)}</p>
+            <div className="competition-values"><span><small>当前赛事积分</small><strong>{formatPoints(item.points)} <em>分</em></strong></span><span><small>当前赛事工资</small><strong>{formatMoney(item.total)}</strong></span></div>
+            <p>{item.contributions.reduce((sum, contribution) => sum + officialFraction(contribution.official), 0)} 场已结算 · 基础工资 {formatMoney(item.matchWage)} · 补贴 {formatMoney(item.bonusWage)}</p>
           </button>;
         })}</div>
         {selectedEvent !== 'all' && <button className="competition-reset" onClick={() => setSelectedEvent('all')}>查看全部赛事明细</button>}
@@ -60,9 +62,9 @@ export default function RefereeDetailPage() {
       <section className="profile-overview-grid">
         <div className="panel level-panel">
           <div className="panel-heading"><div><TrendingUp size={20} /><h2>积分与等级</h2></div><span>规则 2026 秋</span></div>
-          <div className="level-display"><span className={`level-seal level-${summary.level}`}>{summary.level}</span><div><strong>{channelName(activeChannel)}裁判员</strong><p>{upgradeRecommendation?.kind === 'ready' ? `已达到 ${upgradeRecommendation.level} 级积分条件，由管理员在赛前审核` : target ? `距下一等级还需 ${(target - summary.points).toFixed(1)} 分` : '已达到当前渠道最高等级'}</p></div></div>
+          <div className="level-display"><span className={`level-seal level-${summary.level}`}>{summary.level}</span><div><strong>{channelName(activeChannel)}裁判员</strong><p>{upgradeRecommendation?.kind === 'ready' ? `已达到 ${upgradeRecommendation.level} 级积分条件，由管理员在赛前审核` : target ? `距下一等级还需 ${formatPoints(target - summary.points)} 分` : '已达到当前渠道最高等级'}</p></div></div>
           {target && <div className="progress-track"><span style={{ width: `${Math.min(100, summary.points / target * 100)}%` }} /></div>}
-          <div className="mini-breakdown"><span>历史基础积分 <strong>{summary.stats.basePoints.toFixed(1)}</strong></span><span>新增执裁积分 <strong>+{summary.matchPoints.toFixed(1)}</strong></span><span>奖惩积分 <strong>{summary.adjustmentPoints >= 0 ? '+' : ''}{summary.adjustmentPoints.toFixed(1)}</strong></span></div>
+          <div className="mini-breakdown"><span>历史基础积分 <strong>{formatPoints(summary.stats.basePoints)}</strong></span><span>新增执裁积分 <strong>+{formatPoints(summary.matchPoints)}</strong></span><span>奖惩积分 <strong>{summary.adjustmentPoints >= 0 ? '+' : ''}{formatPoints(summary.adjustmentPoints)}</strong></span></div>
         </div>
         <div className="panel wage-panel">
           <div className="panel-heading"><div><WalletCards size={20} /><h2>{season} 工资构成</h2></div><span>{channelName(activeChannel)}</span></div>
@@ -78,8 +80,8 @@ export default function RefereeDetailPage() {
       <section className="panel detail-records">
         <div className="panel-heading"><div><ClipboardCheck size={20} /><h2>{season} {selectedEvent === 'all' ? '' : `${eventName(selectedEvent)} `}工资明细</h2></div><span>{displayedContributions.length} 条执裁记录</span></div>
         {season === HISTORY_SEASON && !displayedContributions.length ? (
-          <div className="historical-summary"><Award size={24} /><div><strong>该赛季采用历史表格中的已审核结算结果</strong><p>历史执裁积分 {summary.stats.historical.pointsEarned.toFixed(1)} 分 · 奖金 {formatMoney(summary.stats.historical.bonusWage)} · 扣款 {formatMoney(summary.stats.historical.deductedWage)}</p><p>岗位场次：{Object.entries(summary.stats.historical.roleCounts).map(([role, count]) => `${({ referee: '主裁', assistant: '助理', fourth: '四官', firstSecond: '一/二裁', third: '三裁' } as Record<string, string>)[role] || role} ${count}`).join(' · ') || '暂无记录'}</p></div></div>
-        ) : displayedContributions.length ? <div className="records-table-wrap"><table className="records-table"><thead><tr><th>日期 / 赛事</th><th>岗位</th><th>积分</th><th>基础工资</th><th>补贴</th><th>合计</th></tr></thead><tbody>{displayedContributions.map((item, index) => <tr key={`${item.match.id}-${index}`}><td><strong>{formatDate(item.match.date)}</strong><small>{item.match.competition} · {item.match.home}{item.match.home && item.match.away ? ' vs ' : ''}{item.match.away}</small></td><td>{roleName(item.official.role)}</td><td>+{item.points.toFixed(1)}</td><td>{formatMoney(item.baseWage)}</td><td>+{formatMoney(item.bonusWage)}{item.bonusWage > 0 && <small className="wage-note">{officialBonusDescription(item.match, item.official)}</small>}</td><td><strong>{formatMoney(item.wage)}</strong></td></tr>)}</tbody></table></div> : <EmptyState icon={<ClipboardCheck />} title="本赛季暂无已结算执裁" description="管理员将比赛标记为“已完成”后，系统会自动生成积分和工资明细。" />}
+          <div className="historical-summary"><Award size={24} /><div><strong>该赛季采用历史表格中的已审核结算结果</strong><p>历史执裁积分 {formatPoints(summary.stats.historical.pointsEarned)} 分 · 奖金 {formatMoney(summary.stats.historical.bonusWage)} · 扣款 {formatMoney(summary.stats.historical.deductedWage)}</p><p>岗位场次：{Object.entries(summary.stats.historical.roleCounts).map(([role, count]) => `${({ referee: '主裁', assistant: '助理', fourth: '四官', firstSecond: '一/二裁', third: '三裁' } as Record<string, string>)[role] || role} ${count}`).join(' · ') || '暂无记录'}</p></div></div>
+        ) : displayedContributions.length ? <div className="records-table-wrap"><table className="records-table"><thead><tr><th>日期 / 赛事</th><th>岗位</th><th>积分</th><th>基础工资</th><th>补贴</th><th>合计</th></tr></thead><tbody>{displayedContributions.map((item, index) => <tr key={`${item.match.id}-${index}`}><td><strong>{formatDate(item.match.date)}</strong><small>{item.match.competition} · {item.match.home}{item.match.home && item.match.away ? ' vs ' : ''}{item.match.away}</small></td><td>{roleName(item.official.role)}{item.official.fraction === 0.5 && <small>0.5 场</small>}</td><td>+{formatPoints(item.points)}</td><td>{formatMoney(item.baseWage)}</td><td>+{formatMoney(item.bonusWage)}{item.bonusWage > 0 && <small className="wage-note">{officialBonusDescription(item.match, item.official)}</small>}</td><td><strong>{formatMoney(item.wage)}</strong></td></tr>)}</tbody></table></div> : <EmptyState icon={<ClipboardCheck />} title="本赛季暂无已结算执裁" description="管理员将比赛标记为“已完成”后，系统会自动生成积分和工资明细。" />}
         {displayedAdjustments.length > 0 && <div className="adjustment-list"><h3>奖惩记录</h3>{displayedAdjustments.map((item) => {
           const match = data!.matches.find((game) => game.id === item.matchId);
           return <div key={item.id}><span className={`adjustment-dot ${item.type}`} /><div><strong>{item.reason}</strong><small>{formatDate(item.date, true)} · {item.event ? eventName(item.event) : '未归赛事'} · {match ? `${match.time} ${match.home && match.away ? `${match.home}—${match.away}` : match.group || match.competition}` : '历史记录 · 未关联比赛'}</small></div><span>{item.points >= 0 ? '+' : ''}{item.points} 分</span><strong className={item.wage < 0 ? 'negative' : ''}>{item.wage >= 0 ? '+' : ''}{formatMoney(item.wage)}</strong></div>;

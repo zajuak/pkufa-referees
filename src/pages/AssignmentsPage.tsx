@@ -91,9 +91,9 @@ export default function AssignmentsPage() {
                 const baseRoles = assignmentRoles[match.channel];
                 const columns = [baseRoles[0], baseRoles[1], baseRoles[2], ...(showAdditional ? (match.channel === 'eleven' && usesAdditionalAssistants(match) ? additionalAssistantRoles : [undefined, undefined]) : []), baseRoles[3]];
                 const role = columns[column];
-                const official = role ? match.officials.find((item) => item.role === role) : undefined;
+                const officials = role ? match.officials.filter((item) => item.role === role && item.name) : [];
                 const isFiveFourth = match.channel === 'five' && column === columns.length - 1;
-                return <td className="assignment-official-cell" key={column} data-label={label}>{isFiveFourth ? '-' : role && status !== 'cancelled' && official?.name ? <span className="assignment-official">{official.name}{official.substitute && <small>临替</small>}</span> : null}</td>;
+                return <td className="assignment-official-cell" key={column} data-label={label}>{isFiveFourth ? '-' : role && status !== 'cancelled' && officials.length ? <span className="assignment-official">{officials.map((official, index) => <span key={index}>{index > 0 ? ' / ' : ''}{official.name}{official.fraction === 0.5 ? <small>0.5 场</small> : official.substitute && <small>临替</small>}</span>)}</span> : null}</td>;
               })}
               <td data-label="状态 / 备注"><div className="assignment-status"><StatusBadge status={status} />{status !== 'cancelled' && automaticTimeBonuses(match).length > 0 && <small className="auto-time-labels">{automaticTimeBonuses(match).map((bonus) => timeBonusLabels[bonus]).join(' · ')}</small>}{match.note && !match.note.includes('比赛取消') && <small className="assignment-note">{match.note.replace(/\s/g, '')}</small>}</div></td>
               <td className="assignment-avoidance-cell" data-label="回避">{status !== 'cancelled' && <div className="assignment-avoidance"><span>{avoidance.colleges.length ? avoidance.colleges.join('、') : avoidance.complete ? '无' : '待设置'}</span>{!avoidance.complete && avoidance.colleges.length > 0 && <small>资料不全</small>}</div>}</td>

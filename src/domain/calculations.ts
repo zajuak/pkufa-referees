@@ -3,6 +3,7 @@ import { automaticTimeBonuses, matchBonuses, timeBonusLabels } from './time-bonu
 import { stageLabel } from './stages';
 import { isAssistantRole, matchInterval } from './scheduling';
 import { competitionEvents, getMatchEvent } from './competitions';
+import { officialDuty, officialFraction } from './workload.ts';
 
 export const CURRENT_SEASON = '2026–27';
 export const HISTORY_SEASON = '2025–26';
@@ -64,10 +65,15 @@ export function calculateOfficial(match: Match, official: Official, level: Level
   if (bonuses.some((bonus) => ['early', 'late', 'weekday'].includes(bonus))) bonusWage += 10;
   if (bonuses.includes('badWeather')) bonusWage += 10;
   if (official.substitute) bonusWage += 10;
+  const fraction = officialFraction(official);
+  points *= fraction;
+  baseWage *= fraction;
+  if (fraction === 0.5) bonusWage = official.actualBonus || 0;
   return { points, baseWage, bonusWage, wage: baseWage + bonusWage };
 }
 
 export function officialBonusDescription(match: Match, official: Official) {
+  if (officialFraction(official) === 0.5) return '中断续赛换裁 · 本次实际补贴';
   const descriptions: string[] = [];
   const bonuses = matchBonuses(match);
   if (match.stage === 'semifinal') descriptions.push('半决赛奖励');
@@ -91,10 +97,10 @@ export function getRefereeMatches(refereeId: string, matches: Match[], status?: 
 export function getChannelSummary(referee: Referee, channel: Channel, matches: Match[], adjustments: Adjustment[], wageStandards?: WageStandards) {
   const stats = referee.channels[channel];
   if (!stats) return null;
-  const completed = getRefereeMatches(referee.id, matches, 'completed').filter((match) => match.channel === channel && getMatchEvent(match));
+  const completed = getRefereeMatches(referee.id, matches).filter((match) => match.status !== 'cancelled' && match.channel === channel && getMatchEvent(match));
   const contributions = completed.flatMap((match) => match.officials
-    .filter((official) => official.refereeId === referee.id)
-    .map((official) => ({ match, official, ...calculateOfficial(match, official, stats.baseLevel, wageStandards) })));
+    .filter((official) => official.refereeId === referee.id && effectiveMatchStatus(officialDuty(match, official)) === 'completed')
+    .map((official) => { const duty = officialDuty(match, official); return { match: duty, official, ...calculateOfficial(duty, official, stats.baseLevel, wageStandards) }; }));
   const ownAdjustments = adjustments.filter((item) => item.refereeId === referee.id && item.channel === channel && (!item.event || competitionEvents.some((config) => config.id === item.event)));
   const matchPoints = contributions.reduce((sum, item) => sum + item.points, 0);
   const adjustmentPoints = ownAdjustments.reduce((sum, item) => sum + item.points, 0);
@@ -188,3 +194,5 @@ export function formatDate(date: string, includeYear = false) {
     ...(includeYear ? { year: 'numeric' as const } : {}), month: 'long', day: 'numeric', weekday: 'short',
   }).format(parsed);
 }
+
+export const formatPoints = (value: number) => new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 2 }).format(value);

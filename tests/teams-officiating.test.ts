@@ -44,8 +44,8 @@ describe('附加助理裁判的工资、积分及岗位检查', () => {
     }
     const data = seed();
     data.matches = [{ ...match, stage: 'placement', officials: [{ ...official, role: 'assistant1' }] }];
-    expect(seasonExportRows(data).eleven[1][11]).toBe(1);
-    expect(seasonExportRows(data).eleven[1][13]).toBe(0);
+    expect(seasonExportRows(data).eleven[1][8]).toBe(1);
+    expect(seasonExportRows(data).eleven[1][9]).toBe(0);
   });
   it('半决赛和决赛自动增加奖励，普通淘汰赛不误发', () => {
     for (const role of ['referee', 'assistant1', 'additionalAssistant1', 'fourth'] as const) {
@@ -62,7 +62,7 @@ describe('附加助理裁判的工资、积分及岗位检查', () => {
     expect(assignmentIssues(enabled, [{ ...enabled, id: 'm2' }])).toHaveLength(1);
     const data = seed(); data.matches = [enabled];
     const rows = seasonExportRows(data).eleven;
-    expect(rows[1][11]).toBe(1); // 边-乙
+    expect(rows[1][8]).toBe(1); // 新生杯助理
     expect(rows[1].at(-1)).toBe(60);
     expect(getSeasonWage(data.referees[0], 'eleven', '2026–27', [{ ...enabled, status: 'cancelled' }], [])!.total).toBe(0);
   });

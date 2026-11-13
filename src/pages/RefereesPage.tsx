@@ -1,3 +1,4 @@
+import { formatPoints } from '../domain/calculations';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowUpRight, Search, SearchX, UsersRound } from 'lucide-react';
@@ -35,10 +36,10 @@ export default function RefereesPage() {
             return <tr key={referee.id}>
               <td data-label="裁判员"><Link className="referee-name" to={`/referees/${referee.id}`}>{referee.name}{nameCounts[referee.name] > 1 && <small>同名档案</small>}</Link></td>
               <td data-label="渠道 / 等级"><div className="channel-stack">{channels.map((item) => { const summary = getChannelSummary(referee, item, data!.matches, data!.adjustments, data!.wageStandards)!; return <span key={item}><ChannelBadge channel={item} /><b className={`level level-${summary.level}`}>{summary.level} 级</b></span>; })}</div></td>
-              <td data-label="当前总积分"><div className="points-stack">{channels.map((item) => <span key={item}><small>{channelName(item)}</small><strong>{getChannelSummary(referee, item, data!.matches, data!.adjustments, data!.wageStandards)!.points.toFixed(1)}</strong></span>)}</div></td>
-              <td className="season-number" data-label="本赛季十一人制积分">{elevenPoints ? elevenPoints.total.toFixed(1) : '—'}</td>
+              <td data-label="当前总积分"><div className="points-stack">{channels.map((item) => <span key={item}><small>{channelName(item)}</small><strong>{formatPoints(getChannelSummary(referee, item, data!.matches, data!.adjustments, data!.wageStandards)!.points)}</strong></span>)}</div></td>
+              <td className="season-number" data-label="本赛季十一人制积分">{elevenPoints ? formatPoints(elevenPoints.total) : '—'}</td>
               <td className="money-value" data-label="本赛季十一人制工资">{elevenWage ? formatMoney(elevenWage.total) : '—'}</td>
-              <td className="season-number" data-label="本赛季五人制积分">{fivePoints ? fivePoints.total.toFixed(1) : '—'}</td>
+              <td className="season-number" data-label="本赛季五人制积分">{fivePoints ? formatPoints(fivePoints.total) : '—'}</td>
               <td className="money-value" data-label="本赛季五人制工资">{fiveWage ? formatMoney(fiveWage.total) : '—'}</td>
               <td data-label="查看详情"><Link className="round-link" to={`/referees/${referee.id}`} aria-label={`查看${referee.name}详情`}><ArrowUpRight size={18} /></Link></td>
             </tr>;

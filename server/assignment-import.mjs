@@ -224,15 +224,22 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
       const existing = matching[0];
       if (existing) {
         matchedIds.add(existing.id);
-        const officials = parsed.officials.map((official) => {
-          const previous = existing.officials.find((item) => item.role === official.role);
+        const officials = parsed.officials.flatMap((official) => {
+          const previousGroup = existing.officials.filter((item) => item.role === official.role);
+          const previous = previousGroup[0];
+          if (previousGroup.some((item) => item.fraction === 0.5)) {
+            if (parsed.channel === 'five' && !context.providedRoles.get(parsed)?.has(official.role)) return previousGroup.map((item) => ({ ...item }));
+            if ((official.refereeId && official.refereeId === previous?.refereeId) || (!official.name && !previous?.name) || (official.name && official.name === previous?.name)) return previousGroup.map((item) => ({ ...item }));
+            throw new Error(`${parsed.date} ${parsed.home}—${parsed.away} 已登记续赛换裁，请在比赛设定中调整该岗位，不能用普通选派表覆盖。`);
+          }
           // Legacy sheets cannot edit roles they have no columns for.
           if (parsed.channel === 'five' && !context.providedRoles.get(parsed)?.has(official.role) && previous) return { ...previous };
           return { ...official, substitute: previous?.substitute || false };
         });
         const additionalAssistants = usesAdditionalAssistants(existing);
         if (additionalAssistants && parsed.status !== 'cancelled') for (const role of additionalAssistantRoles) {
-          officials.push(existing.officials.find((o) => o.role === role) || { role, refereeId: null, name: '' });
+          const previous = existing.officials.filter((o) => o.role === role);
+          officials.push(...(previous.length ? previous : [{ role, refereeId: null, name: '' }]));
         }
         const manual = {
           ...(existing.result !== undefined ? { result: existing.result } : {}),

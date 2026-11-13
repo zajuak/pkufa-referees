@@ -30,7 +30,7 @@ export default function MatchCard({ match }: { match: Match }) {
       {status === 'cancelled' ? <p className="inline-empty">比赛已取消，无需选派裁判。</p> : <div className="official-grid">
         {match.officials.map((official, index) => (
           <div className="official" key={`${official.role}-${index}`}>
-            <span>{roleName(official.role)}</span>
+            <span>{roleName(official.role)}{official.fraction === 0.5 ? ' · 0.5 场' : ''}</span>
             <strong>{official.name || ''}{official.name && official.substitute && <small className="substitute-mark">临替 +¥10</small>}</strong>
           </div>
         ))}

@@ -363,6 +363,8 @@ table { width: 100%; border-collapse: collapse; }
 .official-fields legend, .bonus-checks legend { padding: 0 6px; color: #716a6d; font-size: 10px; }
 .official-input { display: grid; grid-template-columns: 80px minmax(250px, 390px) 1fr; align-items: center; gap: 12px; margin: 8px 0; }
 .official-input > span { font-size: 10px; }
+.official-input .continuation-fields { grid-column: 1 / -1; padding: 12px; background: #faf8f6; border-radius: 8px; }
+.continuation-fields .adjustment-help { grid-column: 1 / -1; }
 .official-picker { display: grid; grid-template-columns: minmax(110px, .8fr) minmax(130px, 1fr); gap: 8px; }
 .official-input .substitute-check { display: flex; flex-direction: row; align-items: center; gap: 5px; }
 .official-input .substitute-check input, .bonus-checks input { width: auto; }

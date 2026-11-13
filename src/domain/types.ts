@@ -36,6 +36,10 @@ export interface Official {
   refereeId: string | null;
   name: string;
   substitute?: boolean;
+  fraction?: 0.5 | 1;
+  actualBonus?: number;
+  dutyDate?: string;
+  dutyTime?: string;
 }
 
 export type MatchTeamSource =

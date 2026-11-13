@@ -1,10 +1,12 @@
 import { strToU8, zipSync } from 'fflate';
-import { CURRENT_SEASON, getChannelSummary, getSeasonPoints, getSeasonWage, isKnockoutStage } from './calculations';
-import type { Channel, DataStore, Referee } from './types';
+import { CURRENT_SEASON, getChannelSummary, getSeasonPoints, getSeasonWage, isKnockoutStage, effectiveMatchStatus } from './calculations';
+import { getMatchEvent } from './competitions';
+import { officialDuty, officialFraction } from './workload.ts';
+import type { Channel, CompetitionEvent, DataStore, Referee } from './types';
 
 type Cell = string | number;
 
-export const elevenExportHeaders = ['姓名', '原级别', '原积分', '现积分', '现级别', '得分', '主-甲', '主-乙', '主-甲淘', '主-乙淘', '边-甲', '边-乙', '边-甲淘', '边-乙淘', '四-甲', '四-乙', '四-甲淘', '四-乙淘', '奖金', '扣钱', '额外得分', '扣分', '工资'];
+export const elevenExportHeaders = ['姓名', '原级别', '原积分', '现积分', '现级别', '得分', '新生-主', '新生-主淘', '新生-边', '新生-边淘', '新生-四', '新生-四淘', '北大-主甲', '北大-主乙', '北大-主甲淘', '北大-主乙淘', '北大-边甲', '北大-边乙', '北大-边甲淘', '北大-边乙淘', '北大-四甲', '北大-四乙', '北大-四甲淘', '北大-四乙淘', '奖金', '扣钱', '额外得分', '扣分', '工资'];
 export const fiveExportHeaders = ['姓名', '原积分', '原评级', '一裁/二裁', '三裁', '奖惩积分', '奖惩工资', '新积分', '新评级', '工资'];
 
 function exportContext(referee: Referee, channel: Channel, season: string, data: DataStore) {
@@ -18,17 +20,18 @@ function exportContext(referee: Referee, channel: Channel, season: string, data:
 }
 
 export function seasonExportRows(data: DataStore, season = CURRENT_SEASON) {
+  const unclassified = data.matches.find((match) => getMatchEvent(match) === 'mens-pku-cup' && (match.season || CURRENT_SEASON) === season && match.officials.some((o) => o.refereeId && effectiveMatchStatus(officialDuty(match, o)) === 'completed') && !['甲', '乙'].includes(match.division || ''));
+  if (unclassified) throw new Error(`${unclassified.date} ${unclassified.home}—${unclassified.away} 尚未设置北大杯甲／乙级，请在比赛设定中补全后导出。`);
   const eleven = data.referees.filter((referee) => referee.channels.eleven).map((referee): Cell[] => {
     const { stats, summary, points, wage } = exportContext(referee, 'eleven', season, data);
-    const count = (roles: string[], knockout: boolean, firstDivision: boolean) => wage.contributions.filter(({ match, official }) => (
-      roles.includes(official.role)
-      && isKnockoutStage(match.stage) === knockout
-      && (firstDivision ? match.division === '甲' : match.division !== '甲')
-    )).length;
-    const roleCounts = ['referee', 'assistant', 'fourth'].flatMap((role) => {
-      const roles = role === 'assistant' ? ['assistant1', 'assistant2', 'additionalAssistant1', 'additionalAssistant2'] : [role];
-      return [count(roles, false, true), count(roles, false, false), count(roles, true, true), count(roles, true, false)];
-    });
+    const count = (roles: string[], knockout: boolean, event: CompetitionEvent, division?: '甲' | '乙') => wage.contributions
+      .filter(({ match, official }) => roles.includes(official.role) && getMatchEvent(match) === event && isKnockoutStage(match.stage) === knockout && (!division || match.division === division))
+      .reduce((total, { official }) => total + officialFraction(official), 0);
+    const roleGroups = [['referee'], ['assistant1', 'assistant2', 'additionalAssistant1', 'additionalAssistant2'], ['fourth']];
+    const roleCounts = [
+      ...roleGroups.flatMap((roles) => [count(roles, false, 'freshmen-cup'), count(roles, true, 'freshmen-cup')]),
+      ...roleGroups.flatMap((roles) => [count(roles, false, 'mens-pku-cup', '甲'), count(roles, false, 'mens-pku-cup', '乙'), count(roles, true, 'mens-pku-cup', '甲'), count(roles, true, 'mens-pku-cup', '乙')]),
+    ];
     const rewardWage = wage.adjustments.filter((item) => item.wage > 0).reduce((sum, item) => sum + item.wage, 0);
     const deductedWage = wage.adjustments.filter((item) => item.wage < 0).reduce((sum, item) => sum + Math.abs(item.wage), 0);
     const rewardPoints = wage.adjustments.filter((item) => item.points > 0).reduce((sum, item) => sum + item.points, 0);
@@ -41,8 +44,8 @@ export function seasonExportRows(data: DataStore, season = CURRENT_SEASON) {
 
   const five = data.referees.filter((referee) => referee.channels.five).map((referee): Cell[] => {
     const { stats, summary, points, wage } = exportContext(referee, 'five', season, data);
-    const firstSecond = wage.contributions.filter(({ official }) => ['first', 'second'].includes(official.role)).length;
-    const third = wage.contributions.filter(({ official }) => official.role === 'third').length;
+    const firstSecond = wage.contributions.filter(({ official }) => ['first', 'second'].includes(official.role)).reduce((sum, { official }) => sum + officialFraction(official), 0);
+    const third = wage.contributions.filter(({ official }) => official.role === 'third').reduce((sum, { official }) => sum + officialFraction(official), 0);
     return [
       referee.name, stats.basePoints, stats.baseLevel, firstSecond, third, points.adjustmentPoints,
       wage.adjustmentWage, Math.max(0, stats.basePoints + points.total), summary.level, wage.total,
@@ -88,7 +91,7 @@ export function createSeasonWorkbook(data: DataStore, season = CURRENT_SEASON) {
     'xl/workbook.xml': strToU8(workbook),
     'xl/_rels/workbook.xml.rels': strToU8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'),
     'xl/styles.xml': strToU8(styles),
-    'xl/worksheets/sheet1.xml': strToU8(worksheet(rows.eleven, [15, 10, 11, 11, 10, 10, 9, 9, 10, 10, 9, 9, 10, 10, 9, 9, 10, 10, 11, 11, 12, 11, 12])),
+    'xl/worksheets/sheet1.xml': strToU8(worksheet(rows.eleven, [15, 10, 11, 11, 10, 10, ...Array(18).fill(13), 11, 11, 12, 11, 12])),
     'xl/worksheets/sheet2.xml': strToU8(worksheet(rows.five, [17, 11, 11, 14, 10, 13, 13, 11, 11, 12])),
   });
 }

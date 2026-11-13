@@ -10,6 +10,7 @@ import { additionalAssistantRoles, assignmentIssues, matchInterval } from '../sr
 import { applyAdvancement } from '../src/domain/avoidance.ts';
 import { previewStandingsResults } from '../src/domain/standings-import.ts';
 import { getMatchEvent } from '../src/domain/competitions.ts';
+import { workloadIssues } from '../src/domain/workload.ts';
 import { normalizeTeamName, teamColor } from '../src/domain/teams.ts';
 import { Router } from './router.mjs';
 import { normalizeCollegeName, normalizeColleges, normalizeMatchAvoidance, normalizeGroupOrder, validateMatchAvoidance, validateSnapshot } from './validation.mjs';
@@ -162,8 +163,17 @@ function validateMatch(input) {
         refereeId: referee?.id || null,
         name: referee?.name || '',
         substitute: Boolean(item.substitute),
+        ...(item.fraction !== undefined ? { fraction: item.fraction } : {}),
+        ...(item.actualBonus !== undefined ? { actualBonus: item.actualBonus } : {}),
+        ...(item.dutyDate !== undefined ? { dutyDate: text(item.dutyDate, 10) } : {}),
+        ...(item.dutyTime !== undefined ? { dutyTime: text(item.dutyTime, 40) } : {}),
       };
     });
+  const workloadErrors = workloadIssues(cleanOfficials);
+  if (workloadErrors.length) throw new Error(workloadErrors.join('；'));
+  for (const official of cleanOfficials) {
+    if ((official.dutyDate !== undefined && !validDate(official.dutyDate)) || (official.dutyTime !== undefined && !matchInterval({ date, time: official.dutyTime }))) throw new Error('请填写有效的实际执裁日期和时间');
+  }
   if (additionalAssistants && status !== 'cancelled') for (const role of additionalAssistantRoles) {
     if (!cleanOfficials.some((o) => o.role === role)) cleanOfficials.push({ role, refereeId: null, name: '', substitute: false });
   }
@@ -193,14 +203,13 @@ function validateMatch(input) {
     homeColor: Object.hasOwn(input, 'homeColor') ? jerseyColor(input.homeColor) : teamColor(store, event, text(input.home, 60)),
     awayColor: Object.hasOwn(input, 'awayColor') ? jerseyColor(input.awayColor) : teamColor(store, event, text(input.away, 60)),
     stage,
-    division: ['甲', '乙'].includes(input.division) ? input.division : null,
+    division: event === 'mens-pku-cup' && ['甲', '乙'].includes(input.division) ? input.division : null,
     status,
     note: text(input.note, 300),
     bonuses: [...new Set(bonuses)],
     officials: cleanOfficials,
     additionalAssistants,
   };
-  if (new Set(cleanOfficials.map((o) => o.role)).size !== cleanOfficials.length) throw new Error('同一岗位不能重复');
   if (status !== 'cancelled' && !matchInterval(result)) throw new Error('比赛时间请填写有效的开始和结束时间，例如 12:00-14:00');
   const prospective = store.matches.some((item) => item.id === result.id)
     ? store.matches.map((item) => item.id === result.id ? result : item)

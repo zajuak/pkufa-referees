@@ -42,7 +42,8 @@ describe('当前赛季积分工资表导出', () => {
     expect(rows.eleven[0]).toEqual(elevenExportHeaders);
     expect(rows.eleven[1]).toEqual([
       '测试裁判', 'A', 100, 108.6, 'A', 7.6,
-      0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+      1, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
       20, 30, 2, 1, 192,
     ]);
     expect(rows.five).toEqual([
@@ -58,7 +59,7 @@ describe('当前赛季积分工资表导出', () => {
     const five = workbook.getWorksheet('五人制');
     expect(eleven.getRow(1).values.slice(1)).toEqual(elevenExportHeaders);
     expect(eleven.getRow(2).getCell(4).value).toBe('108.6');
-    expect(eleven.getRow(2).getCell(23).value).toBe('192');
+    expect(eleven.getRow(2).getCell(29).value).toBe('192');
     expect(five.getRow(1).values.slice(1)).toEqual(fiveExportHeaders);
     expect(five.getRow(2).getCell(10).value).toBe('60');
   });
