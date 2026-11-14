@@ -4,6 +4,7 @@ import type { DataStore, Match, Official } from '../src/domain/types';
 import { initialChannelStats } from '../src/domain/referees';
 import { calculateOfficial, formatPoints, getChannelSummary, getSeasonWage } from '../src/domain/calculations';
 import { assignmentIssues, vacantRoles } from '../src/domain/scheduling';
+import { interruptionIssues, interruptionSettings, resumptionReady } from '../src/domain/workload';
 import { createSeasonWorkbook, elevenExportHeaders, seasonExportRows } from '../src/domain/season-export';
 // @ts-expect-error Shared server entry.
 import { handleApi } from '../server/api.mjs';
@@ -28,6 +29,36 @@ function apiFixture() {
 const cell = (row: (string | number)[], name: string) => row[elevenExportHeaders.indexOf(name)];
 
 describe('续赛换裁与赛事分项导出', () => {
+  it('正常比赛默认隐藏，只有中断且完整填写接续时间才允许开启续赛选派', () => {
+    const normal = match({ officials: [{ role: 'referee', refereeId: 'r1', name: 'r1' }] });
+    expect(interruptionSettings(normal)).toEqual({ interrupted: false, resumption: undefined });
+    expect(resumptionReady(normal)).toBe(false);
+    expect(resumptionReady({ ...normal, interrupted: true })).toBe(false);
+    expect(resumptionReady({ ...normal, interrupted: true, resumption: { date: '2026-10-04', time: '' } })).toBe(false);
+    expect(resumptionReady({ ...normal, interrupted: true, resumption: { date: '2026-10-04', time: '14:00-16:00' } })).toBe(true);
+  });
+  it('兼容旧半场记录，按续赛裁判的实际时间恢复中断及接续设置', () => {
+    const legacy = match({ officials: [half('r1'), { ...half('r2'), dutyDate: '2026-10-04', dutyTime: '14:00-16:00' }] });
+    expect(interruptionSettings(legacy)).toEqual({ interrupted: true, resumption: { date: '2026-10-04', time: '14:00-16:00' } });
+    expect(interruptionIssues(legacy)).toEqual([]); expect(resumptionReady(legacy)).toBe(true);
+    expect(interruptionIssues({ ...legacy, interrupted: false })).not.toEqual([]);
+  });
+  it('可先保存中断但时间未定的比赛，再设置接续时间和换裁', async () => {
+    const f = apiFixture(); const normal = match({ interrupted: true, officials: [{ role: 'referee', refereeId: 'r1', name: 'r1' }] });
+    expect((await f.call(normal)).status).toBe(200); expect(f.data.matches[0].interrupted).toBe(true); expect(f.data.matches[0].resumption).toBeUndefined();
+    const resumed = { ...match(), interrupted: true, resumption: { date: '2026-10-04', time: '14:00-16:00' } };
+    expect((await f.call(resumed)).status).toBe(200); expect(f.data.matches[0].resumption).toEqual(resumed.resumption);
+    expect(() => validateSnapshot(f.data)).not.toThrow();
+  });
+  it.each([
+    { interrupted: false }, { interrupted: true, resumption: { date: '2026-10-04', time: '' } },
+    { interrupted: true, resumption: { date: '2026-02-30', time: '14:00-16:00' } },
+    { interrupted: true, resumption: { date: '2026-10-04', time: '25:00-26:00' } },
+  ])('不允许以未中断或无有效接续时间的状态保存换裁：%j', async (settings) => {
+    const f = apiFixture(), before = structuredClone(f.data);
+    expect((await f.call(match(settings))).status).toBe(400); expect(f.writes).toBe(0); expect(f.data).toEqual(before);
+    const bad = structuredClone(before); Object.assign(bad.matches[0], settings); expect(() => validateSnapshot(bad)).toThrow();
+  });
   it('新生杯不混入北大杯甲乙分项，原等级与人工确认后的等级仍可对照', () => {
     const d = seed(); d.referees[0].channels.eleven!.levelOverride = 'C';
     d.matches.push(match({ id: 'm2', stage: 'knockout', event: 'mens-pku-cup', competition: '男足北大杯', division: '甲', officials: [half('r1', 'assistant1'), half('r2', 'assistant1')] }));

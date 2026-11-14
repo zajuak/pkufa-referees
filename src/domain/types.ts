@@ -71,6 +71,8 @@ export interface Match {
   note: string;
   bonuses: Bonus[];
   officials: Official[];
+  interrupted?: boolean;
+  resumption?: { date: string; time: string };
   additionalAssistants?: boolean;
   /** Absent means automatic; supplement adds colleges, replace specifies the full list. */
   avoidanceOverride?: { mode: 'supplement' | 'replace'; colleges: string[] };

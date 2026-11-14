@@ -9,6 +9,7 @@ import { automaticTimeBonuses, matchBonuses, timeBonusKinds, timeBonusLabels } f
 import { allowedStages, stageOptions, stageLabel } from '../domain/stages';
 import { matchWeek } from '../domain/weeks';
 import { eventTeams, teamColor } from '../domain/teams';
+import { interruptionIssues, interruptionSettings, resumptionReady } from '../domain/workload';
 import { normalizeRefereeName, refereeNameKey } from '../domain/referees';
 import type { Channel, CompetitionEvent, Match, MatchTeamSource, Official, Role } from '../domain/types';
 
@@ -28,7 +29,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
   const [form, setForm] = useState<Match>(() => {
     if (!match) return emptyMatch();
     const event = getMatchEvent(match) || (match.channel === 'eleven' ? 'freshmen-cup' : 'womens-pku-cup');
-    return { ...emptyMatch(), ...match, event,
+    return { ...emptyMatch(), ...match, ...interruptionSettings(match), event,
       homeColor: match.homeColor || teamColor(data!, event, match.home),
       awayColor: match.awayColor || teamColor(data!, event, match.away),
       additionalAssistants: usesAdditionalAssistants(match),
@@ -38,6 +39,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
   const [saving, setSaving] = useState(false);
   const [officialQueries, setOfficialQueries] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
+  const canResume = resumptionReady(form);
   const automaticBonuses = automaticTimeBonuses(form);
   const calculatedWeek = matchWeek(form, data!.matches, data!.meta.season);
   const analysisMatch = { ...form, officials: form.officials.map((official) => {
@@ -61,7 +63,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
     if (['knockout', 'semifinal', 'final', 'third'].includes(form.stage) && form.result.home === form.result.away
       && (!Number.isSafeInteger(form.result.homePenalties) || !Number.isSafeInteger(form.result.awayPenalties) || form.result.homePenalties === form.result.awayPenalties)) scoreErrors.push('淘汰赛常规比分持平时，必须填写不相等的点球比分');
   }
-  const issues = [...analysis.issues, ...scoreErrors];
+  const issues = [...analysis.issues, ...scoreErrors, ...interruptionIssues(form)];
   const warnings = analysis.warnings;
   const resolvedTeams = resolveMatchTeams(resolvedMatch, prospectiveMatches, data!.groupOrders || []);
   const avoidance = matchAvoidanceSummary(resolvedMatch, prospectiveMatches, data!.teams || [], data!.groupOrders || []);
@@ -70,13 +72,14 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
   const update = <K extends keyof Match>(key: K, value: Match[K]) => setForm((current) => ({ ...current, [key]: value }));
   const changeChannel = (channel: Channel) => setForm((current) => {
     const event = channel === 'eleven' ? 'freshmen-cup' : 'womens-pku-cup';
-    return { ...current, channel, event, competition: defaultCompetition(event), stage: allowedStages(channel).includes(current.stage) ? current.stage : 'group', additionalAssistants: false, home: '', away: '', homeColor: '', awayColor: '', result: undefined, placementMode: undefined, homeSource: undefined, awaySource: undefined, officials: current.status === 'cancelled' ? [] : requiredRoles(channel).map((role) => ({ role, refereeId: null, name: '' })) };
+    return { ...current, channel, event, interrupted: false, resumption: undefined, competition: defaultCompetition(event), stage: allowedStages(channel).includes(current.stage) ? current.stage : 'group', additionalAssistants: false, home: '', away: '', homeColor: '', awayColor: '', result: undefined, placementMode: undefined, homeSource: undefined, awaySource: undefined, officials: current.status === 'cancelled' ? [] : requiredRoles(channel).map((role) => ({ role, refereeId: null, name: '' })) };
   });
   const changeEvent = (event: CompetitionEvent) => setForm((current) => ({ ...current, event, division: event === 'mens-pku-cup' ? current.division : null, competition: defaultCompetition(event), home: '', away: '', homeColor: '', awayColor: '', result: undefined, homeSource: undefined, awaySource: undefined }));
   const changeStatus = (status: Match['status']) => setForm((current) => ({
     ...current,
     status,
     result: status === 'completed' ? current.result : undefined,
+    ...(status === 'cancelled' ? { interrupted: false, resumption: undefined } : {}),
     officials: status === 'cancelled' ? [] : keepRoleOfficials(current.officials, matchRoles(current)),
   }));
   const changeStage = (stage: Match['stage']) => setForm((current) => ({
@@ -112,8 +115,28 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
     setForm((current) => ({ ...current, additionalAssistants: enabled, officials: current.status === 'cancelled' ? [] : keepRoleOfficials(current.officials, requiredRoles(current.channel, enabled)) }));
   };
 
+  const changeInterruption = (enabled: boolean) => {
+    if (!enabled && form.officials.some(o => o.fraction === 0.5) && !window.confirm('关闭比赛中断将移除续赛换裁记录，并恢复原场裁判执裁 1 场。确认后保存才会生效，是否继续？')) return;
+    setOfficialQueries({});
+    setForm((current) => ({ ...current, interrupted: enabled, resumption: enabled ? current.resumption : undefined,
+      officials: enabled ? current.officials : current.officials.flatMap((official, index, all) => {
+        if (official.fraction !== 0.5) return [official];
+        if (all.findIndex(o => o.role === official.role) !== index) return [];
+        const { fraction, actualBonus, dutyDate, dutyTime, ...full } = official;
+        return [full];
+      }),
+    }));
+  };
+  const changeResumption = (patch: Partial<NonNullable<Match['resumption']>>) => setForm((current) => {
+    const value = { date: '', time: '', ...current.resumption, ...patch };
+    const updated = { ...current, resumption: value.date || value.time ? value : undefined };
+    if (resumptionReady(updated)) updated.officials = current.officials.map((official, index, all) => official.fraction === 0.5 && all.findIndex(o => o.role === official.role) !== index ? { ...official, dutyDate: value.date, dutyTime: value.time } : official);
+    return updated;
+  });
+
   const patchOfficial = (index: number, patch: Partial<Official>) => setForm((current) => ({ ...current, officials: current.officials.map((o, i) => i === index ? { ...o, ...patch } : o) }));
   const toggleContinuation = (role: Role, enabled: boolean) => {
+    if (enabled && !canResume) return;
     if (!enabled && form.officials.filter((o) => o.role === role).slice(1).some((o) => o.name) && !window.confirm('关闭续赛换裁将移除该岗位的续赛裁判，并恢复为原裁判执裁 1 场，是否继续？')) return;
     setOfficialQueries({});
     setForm((current) => {
@@ -121,7 +144,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
       return { ...current, officials: current.officials.flatMap((o, index) => {
         if (o.role !== role) return [o];
         if (index !== first) return [];
-        if (enabled) return [{ ...o, fraction: 0.5 as const, actualBonus: 0, substitute: false, dutyDate: current.date, dutyTime: current.time }, { role, refereeId: null, name: '', fraction: 0.5 as const, actualBonus: 0, dutyDate: current.date, dutyTime: current.time }];
+        if (enabled) return [{ ...o, fraction: 0.5 as const, actualBonus: 0, substitute: false, dutyDate: current.date, dutyTime: current.time }, { role, refereeId: null, name: '', fraction: 0.5 as const, actualBonus: 0, dutyDate: current.resumption!.date, dutyTime: current.resumption!.time }];
         const { fraction, actualBonus, dutyDate, dutyTime, ...full } = o;
         return [full];
       }) };
@@ -148,7 +171,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
       <div className="form-heading"><div><span>{form.id ? '编辑比赛' : '新增比赛'}</span><small>完成后自动重算工资与积分</small></div><button type="button" className="icon-button" onClick={onClose} aria-label="关闭表单"><X size={18} /></button></div>
       <div className="form-grid three-cols">
         <label>赛季<select value={form.season} onChange={(event) => update('season', event.target.value)}>{seasons.map((season) => <option key={season}>{season}</option>)}</select></label>
-        <label>周次（自动计算）<input aria-label="周次" type="number" min="1" readOnly value={calculatedWeek} /><small className="auto-week-note">按本赛季首场比赛起算，周四至下周三为一周。</small></label>
+        <label>周次（自动计算）<input aria-label="周次" type="number" min="1" readOnly value={calculatedWeek} /><small className="auto-week-note">按本学期首场比赛起算，周四至下周三为一周。</small></label>
         <label>赛制<select value={form.channel} onChange={(event) => changeChannel(event.target.value as Channel)}><option value="eleven">十一人制</option><option value="five">五人制</option></select></label>
       </div>
       <div className="form-grid two-cols">
@@ -173,6 +196,14 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
         <label>客队球衣颜色<div className="color-input"><input type="color" aria-label="客队球衣颜色" value={form.awayColor || '#FFFFFF'} onChange={(event) => update('awayColor', event.target.value.toUpperCase())} /><span>{form.awayColor || '未设置'}</span><button type="button" aria-label="清除客队球衣颜色" onClick={() => update('awayColor', '')}>清除</button></div></label>
       </div>
       <div className="form-grid two-cols">{form.event === 'mens-pku-cup' && <label>北大杯级别<select value={form.division || ''} onChange={(event) => update('division', (event.target.value || null) as Match['division'])}><option value="">请选择甲／乙级</option><option value="甲">甲级（工资 ×1.1）</option><option value="乙">乙级</option></select></label>}<label>比赛状态<select value={form.status} onChange={(event) => changeStatus(event.target.value as Match['status'])}><option value="scheduled">待进行（结束后自动完成）</option><option value="completed">手动标记已完成</option><option value="cancelled">已取消</option></select></label></div>
+      {form.status !== 'cancelled' && <fieldset className="bonus-checks interruption-settings"><legend>比赛中断与接续</legend>
+        <label><input type="checkbox" aria-label="比赛中断" checked={form.interrupted || false} onChange={(event) => changeInterruption(event.target.checked)} />比赛中断</label>
+        {form.interrupted && <div className="form-grid two-cols">
+          <label>接续比赛日期<input type="date" aria-label="接续比赛日期" value={form.resumption?.date || ''} onChange={(event) => changeResumption({ date: event.target.value })} /></label>
+          <label>接续比赛时段<input aria-label="接续比赛时段" value={form.resumption?.time || ''} placeholder="例如 14:00-16:00" onChange={(event) => changeResumption({ time: event.target.value })} /></label>
+          <p className="adjustment-help">{canResume ? '可在需要换裁的岗位启用续赛选派；未更换裁判的岗位仍计 1 场。' : '填写接续比赛日期和时段后，才会显示续赛裁判选派选项；时间未定时可先保存中断设置。'}</p>
+        </div>}
+      </fieldset>}
       {form.status === 'completed' && <fieldset className="result-fields"><legend>比赛结果</legend>{form.result && <button type="button" className="button secondary" onClick={() => update('result', undefined)}>清除赛果</button>}<p className="adjustment-help">比分可暂不录入；未录入不参与积分榜和晋级。小组赛胜 3、平 1、负 0，淘汰赛须有明确胜负。</p><div className="score-inputs"><label>主队比分<input aria-label="主队比分" type="number" required={Boolean(form.result)} min="0" step="1" value={form.result?.home ?? ''} onChange={(event) => updateScore('home', event.target.value)} /></label><span>:</span><label>客队比分<input aria-label="客队比分" type="number" required={Boolean(form.result)} min="0" step="1" value={form.result?.away ?? ''} onChange={(event) => updateScore('away', event.target.value)} /></label>{form.channel === 'eleven' && ['knockout', 'semifinal', 'final', 'third'].includes(form.stage) && form.result?.home === form.result?.away && <><span>点球</span><label>主队点球<input aria-label="主队点球" type="number" required min="0" step="1" value={form.result?.homePenalties ?? ''} onChange={(event) => updateScore('homePenalties', event.target.value)} /></label><span>:</span><label>客队点球<input aria-label="客队点球" type="number" required min="0" step="1" value={form.result?.awayPenalties ?? ''} onChange={(event) => updateScore('awayPenalties', event.target.value)} /></label></>}</div></fieldset>}
       {form.status !== 'cancelled' && <fieldset className="advancement-fields match-avoidance-settings"><legend>本场回避</legend>
         <label>回避计算方式<select aria-label="回避计算方式" value={form.avoidanceOverride?.mode || 'auto'} onChange={(event) => {
@@ -188,8 +219,9 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
       {form.status === 'cancelled' ? <p className="inline-empty">比赛已取消，无需选派裁判。</p> : <fieldset className="official-fields"><legend>裁判选派</legend><p className="adjustment-help">输入姓名后在下拉框中选派；没有档案时可选择“新建并选派”，保存比赛时自动创建。已有其他赛制档案会直接补齐本赛制，不重复建档。</p>{form.officials.map((official, index) => {
         const paired = official.fraction === 0.5;
         const firstForRole = form.officials.findIndex((o) => o.role === official.role) === index;
+        if (paired && !canResume && !firstForRole) return null;
         const baseRoleLabel = roleName(official.role);
-        const roleLabel = paired ? `${baseRoleLabel}（${firstForRole ? '原场' : '续赛'}）` : baseRoleLabel;
+        const roleLabel = paired && canResume ? `${baseRoleLabel}（${firstForRole ? '原场' : '续赛'}）` : baseRoleLabel;
         const typedName = normalizeRefereeName(officialQueries[index] || '');
         const query = refereeNameKey(typedName);
         const pendingName = !official.refereeId ? official.name : '';
@@ -211,8 +243,8 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
             }}><option value="">待选派</option>{eligibleReferees.map((referee) => <option key={referee.id} value={referee.id}>{referee.name}</option>)}{pendingNames.map((name) => <option key={`new:${name}`} value={`new:${name}`}>{data!.referees.some((referee) => refereeNameKey(referee.name) === refereeNameKey(name)) ? '选派并补齐档案' : '新建并选派'}：{name}</option>)}{!eligibleReferees.length && !pendingNames.length && <option disabled>没有匹配的裁判员</option>}</select>
           </div>
           {!paired && (official.refereeId || official.name) && <label className="substitute-check"><input type="checkbox" checked={official.substitute || false} onChange={(event) => setForm((current) => ({ ...current, officials: current.officials.map((item, i) => i === index ? { ...item, substitute: event.target.checked } : item) }))} />临时替补 +10 元</label>}
-          {firstForRole && <label className="substitute-check"><input type="checkbox" aria-label={`${baseRoleLabel}续赛换裁`} checked={paired} onChange={(event) => toggleContinuation(official.role, event.target.checked)} />中断后续赛更换裁判</label>}
-          {paired && <div className="continuation-fields form-grid three-cols">
+          {firstForRole && canResume && <label className="substitute-check"><input type="checkbox" aria-label={`${baseRoleLabel}续赛换裁`} checked={paired} onChange={(event) => toggleContinuation(official.role, event.target.checked)} />中断后续赛更换裁判</label>}
+          {paired && canResume && <div className="continuation-fields form-grid three-cols">
             <label>执裁日期<input type="date" aria-label={`${roleLabel}执裁日期`} required value={official.dutyDate || form.date} onChange={(event) => patchOfficial(index, { dutyDate: event.target.value })} /></label>
             <label>执裁时段<input aria-label={`${roleLabel}执裁时段`} required value={official.dutyTime || form.time} onChange={(event) => patchOfficial(index, { dutyTime: event.target.value })} placeholder="12:00-14:00" /></label>
             <label>本次实际补贴（元）<input type="number" min="0" step="0.5" aria-label={`${roleLabel}实际补贴`} required value={official.actualBonus ?? 0} onChange={(event) => patchOfficial(index, { actualBonus: Number(event.target.value) })} /></label>

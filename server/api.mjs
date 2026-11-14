@@ -10,7 +10,7 @@ import { additionalAssistantRoles, assignmentIssues, matchInterval } from '../sr
 import { applyAdvancement } from '../src/domain/avoidance.ts';
 import { previewStandingsResults } from '../src/domain/standings-import.ts';
 import { getMatchEvent } from '../src/domain/competitions.ts';
-import { workloadIssues } from '../src/domain/workload.ts';
+import { interruptionIssues, interruptionSettings, workloadIssues } from '../src/domain/workload.ts';
 import { normalizeTeamName, teamColor } from '../src/domain/teams.ts';
 import { Router } from './router.mjs';
 import { normalizeCollegeName, normalizeColleges, normalizeMatchAvoidance, normalizeGroupOrder, validateMatchAvoidance, validateSnapshot } from './validation.mjs';
@@ -209,7 +209,14 @@ function validateMatch(input) {
     bonuses: [...new Set(bonuses)],
     officials: cleanOfficials,
     additionalAssistants,
+    ...(input.interrupted !== undefined ? { interrupted: input.interrupted } : {}),
+    ...(input.resumption !== undefined ? { resumption: input.resumption } : {}),
   };
+  const interruptionErrors = interruptionIssues(result);
+  if (interruptionErrors.length) throw new Error(interruptionErrors.join('；'));
+  const interruption = interruptionSettings(result);
+  if (input.interrupted !== undefined || interruption.interrupted) result.interrupted = interruption.interrupted;
+  if (interruption.resumption) result.resumption = { date: interruption.resumption.date, time: interruption.resumption.time };
   if (status !== 'cancelled' && !matchInterval(result)) throw new Error('比赛时间请填写有效的开始和结束时间，例如 12:00-14:00');
   const prospective = store.matches.some((item) => item.id === result.id)
     ? store.matches.map((item) => item.id === result.id ? result : item)

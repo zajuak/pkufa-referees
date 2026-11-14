@@ -2,7 +2,7 @@ import { allowedStages } from '../src/domain/stages.ts';
 import { additionalAssistantRoles, usesAdditionalAssistants, requiredRoles } from '../src/domain/scheduling.ts';
 import { resolveMatchTeams } from '../src/domain/avoidance.ts';
 import { getMatchEvent } from '../src/domain/competitions.ts';
-import { workloadIssues } from '../src/domain/workload.ts';
+import { interruptionIssues, workloadIssues } from '../src/domain/workload.ts';
 import { matchInterval } from '../src/domain/scheduling.ts';
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -183,7 +183,7 @@ export function validateSnapshot(input) {
     if (m.additionalAssistants !== undefined && typeof m.additionalAssistants !== 'boolean') throw new Error('附加助理裁判设置不正确');
     if (m.additionalAssistants && m.channel !== 'eleven') throw new Error('仅十一人制可设置附加助理裁判');
     if (usesAdditionalAssistants(m) && m.status !== 'cancelled' && additionalAssistantRoles.some((role) => !m.officials.some((o) => o.role === role))) throw new Error('附加助理裁判必须保留两个岗位');
-    const workloadErrors = workloadIssues(m.officials);
+    const workloadErrors = [...workloadIssues(m.officials), ...interruptionIssues(m)];
     if (workloadErrors.length) throw new Error(workloadErrors.join('；'));
     for (const o of m.officials) if ((o.dutyDate !== undefined && !date(o.dutyDate)) || (o.dutyTime !== undefined && !matchInterval({ date: m.date, time: o.dutyTime }))) throw new Error('实际执裁日期或时间格式不正确');
     for (const o of m.officials) if (typeof o.name !== 'string' || !requiredRoles(m.channel, usesAdditionalAssistants(m)).includes(o.role) || (o.refereeId && !value.referees.some((r) => r.id === o.refereeId && r.channels[m.channel]))) throw new Error('选派记录关联了无效档案');
