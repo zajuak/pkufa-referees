@@ -164,6 +164,7 @@ function validateMatch(input) {
         name: referee?.name || '',
         substitute: Boolean(item.substitute),
         ...(item.fraction !== undefined ? { fraction: item.fraction } : {}),
+        ...(item.allocationPercent !== undefined ? { allocationPercent: item.allocationPercent } : {}),
         ...(item.actualBonus !== undefined ? { actualBonus: item.actualBonus } : {}),
         ...(item.dutyDate !== undefined ? { dutyDate: text(item.dutyDate, 10) } : {}),
         ...(item.dutyTime !== undefined ? { dutyTime: text(item.dutyTime, 40) } : {}),

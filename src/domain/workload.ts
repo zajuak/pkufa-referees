@@ -1,6 +1,7 @@
 import type { Match, Official } from './types';
 
 export const officialFraction = (official: Official) => official.fraction === 0.5 ? 0.5 : 1;
+export const officialAllocationFraction = (official: Official) => official.fraction === 0.5 ? (official.allocationPercent ?? 50) / 100 : 1;
 export const officialDuty = (match: Match, official: Official) => ({ ...match, date: official.dutyDate || match.date, time: official.dutyTime || match.time });
 
 type InterruptedMatch = Pick<Match, 'date' | 'time' | 'officials' | 'interrupted' | 'resumption'>;
@@ -40,6 +41,8 @@ export function workloadIssues(officials: Official[]) {
   for (const o of officials) {
     if (o.fraction !== undefined && o.fraction !== 1 && o.fraction !== 0.5) issues.push('执裁场次只能为 1 或 0.5');
     if (o.fraction === 0.5 && (typeof o.actualBonus !== 'number' || !Number.isFinite(o.actualBonus) || o.actualBonus < 0)) issues.push('0.5 场须填写本次实际补贴金额（可为 0）');
+    if (o.allocationPercent !== undefined && (typeof o.allocationPercent !== 'number' || !Number.isFinite(o.allocationPercent) || o.allocationPercent < 0)) issues.push('分配比例须为有效的非负百分比');
+    if (o.fraction !== 0.5 && o.allocationPercent !== undefined) issues.push('分配比例仅用于续赛换裁记录');
     if (o.fraction !== 0.5 && (o.actualBonus !== undefined || o.dutyDate !== undefined || o.dutyTime !== undefined)) issues.push('实际执裁时间和补贴仅用于续赛换裁的 0.5 场记录');
   }
   return [...new Set(issues)];

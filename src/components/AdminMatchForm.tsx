@@ -122,7 +122,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
       officials: enabled ? current.officials : current.officials.flatMap((official, index, all) => {
         if (official.fraction !== 0.5) return [official];
         if (all.findIndex(o => o.role === official.role) !== index) return [];
-        const { fraction, actualBonus, dutyDate, dutyTime, ...full } = official;
+        const { fraction, allocationPercent, actualBonus, dutyDate, dutyTime, ...full } = official;
         return [full];
       }),
     }));
@@ -144,8 +144,8 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
       return { ...current, officials: current.officials.flatMap((o, index) => {
         if (o.role !== role) return [o];
         if (index !== first) return [];
-        if (enabled) return [{ ...o, fraction: 0.5 as const, actualBonus: 0, substitute: false, dutyDate: current.date, dutyTime: current.time }, { role, refereeId: null, name: '', fraction: 0.5 as const, actualBonus: 0, dutyDate: current.resumption!.date, dutyTime: current.resumption!.time }];
-        const { fraction, actualBonus, dutyDate, dutyTime, ...full } = o;
+        if (enabled) return [{ ...o, fraction: 0.5 as const, allocationPercent: 50, actualBonus: 0, substitute: false, dutyDate: current.date, dutyTime: current.time }, { role, refereeId: null, name: '', fraction: 0.5 as const, allocationPercent: 50, actualBonus: 0, dutyDate: current.resumption!.date, dutyTime: current.resumption!.time }];
+        const { fraction, allocationPercent, actualBonus, dutyDate, dutyTime, ...full } = o;
         return [full];
       }) };
     });
@@ -247,8 +247,9 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
           {paired && canResume && <div className="continuation-fields form-grid three-cols">
             <label>执裁日期<input type="date" aria-label={`${roleLabel}执裁日期`} required value={official.dutyDate || form.date} onChange={(event) => patchOfficial(index, { dutyDate: event.target.value })} /></label>
             <label>执裁时段<input aria-label={`${roleLabel}执裁时段`} required value={official.dutyTime || form.time} onChange={(event) => patchOfficial(index, { dutyTime: event.target.value })} placeholder="12:00-14:00" /></label>
+            <label>积分／基础工资比例（%）<input type="number" min="0" step="any" aria-label={`${roleLabel}分配比例`} required value={official.allocationPercent ?? 50} onChange={(event) => patchOfficial(index, { allocationPercent: Number(event.target.value) })} /></label>
             <label>本次实际补贴（元）<input type="number" min="0" step="0.5" aria-label={`${roleLabel}实际补贴`} required value={official.actualBonus ?? 0} onChange={(event) => patchOfficial(index, { actualBonus: Number(event.target.value) })} /></label>
-            <p className="adjustment-help">各计 0.5 场、积分及基础工资各半；本次补贴按实际金额填写（包含时间、天气、阶段、临替等补贴，可填 0）。</p>
+            <p className="adjustment-help">场次各计 0.5；积分和基础工资按各自比例计算，积分保留一位小数；两人比例独立填写，合计允许超过 100%。本次补贴按实际金额填写（包含时间、天气、阶段、临替等补贴，可填 0）。</p>
           </div>}
           {analysis.issues.filter((issue) => issue.includes(`（${roleLabel}）`) && issue.includes(official.name)).map((issue) => <p className="official-avoidance-issue" key={issue}>{issue}</p>)}
         </div>;

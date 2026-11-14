@@ -3,7 +3,7 @@ import { automaticTimeBonuses, matchBonuses, timeBonusLabels } from './time-bonu
 import { stageLabel } from './stages';
 import { isAssistantRole, matchInterval } from './scheduling';
 import { competitionEvents, getMatchEvent } from './competitions';
-import { officialDuty, officialFraction } from './workload.ts';
+import { officialDuty, officialFraction, officialAllocationFraction } from './workload.ts';
 
 export const CURRENT_SEASON = '2026–27';
 export const HISTORY_SEASON = '2025–26';
@@ -66,8 +66,9 @@ export function calculateOfficial(match: Match, official: Official, level: Level
   if (bonuses.includes('badWeather')) bonusWage += 10;
   if (official.substitute) bonusWage += 10;
   const fraction = officialFraction(official);
-  points *= fraction;
-  baseWage *= fraction;
+  points = Math.round((points * officialAllocationFraction(official) + Number.EPSILON) * 10) / 10;
+  baseWage *= officialAllocationFraction(official);
+  if (official.allocationPercent !== undefined) baseWage = Math.round((baseWage + Number.EPSILON) * 100) / 100;
   if (fraction === 0.5) bonusWage = official.actualBonus || 0;
   return { points, baseWage, bonusWage, wage: baseWage + bonusWage };
 }
@@ -195,4 +196,4 @@ export function formatDate(date: string, includeYear = false) {
   }).format(parsed);
 }
 
-export const formatPoints = (value: number) => new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 2 }).format(value);
+export const formatPoints = (value: number) => new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value);

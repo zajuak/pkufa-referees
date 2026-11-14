@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { zipSync, strToU8 } from 'fflate';
+import { unzipSync, strFromU8, zipSync, strToU8 } from 'fflate';
 import type { DataStore, Match, Official } from '../src/domain/types';
 import { initialChannelStats } from '../src/domain/referees';
 import { calculateOfficial, formatPoints, getChannelSummary, getSeasonWage } from '../src/domain/calculations';
 import { assignmentIssues, vacantRoles } from '../src/domain/scheduling';
-import { interruptionIssues, interruptionSettings, resumptionReady } from '../src/domain/workload';
+import { interruptionIssues, interruptionSettings, officialAllocationFraction, resumptionReady } from '../src/domain/workload';
 import { createSeasonWorkbook, elevenExportHeaders, seasonExportRows } from '../src/domain/season-export';
 // @ts-expect-error Shared server entry.
 import { handleApi } from '../server/api.mjs';
@@ -29,6 +29,52 @@ function apiFixture() {
 const cell = (row: (string | number)[], name: string) => row[elevenExportHeaders.indexOf(name)];
 
 describe('续赛换裁与赛事分项导出', () => {
+  it.each([[80, 3.2], [60, 2.4], [150.5, 6], [33.333, 1.3], [1.25, 0.1], [1, 0], [0, 0]])('积分与基础工资使用同一比例，积分四舍五入到一位小数：%s%% -> %s', (percent, points) => {
+    const official = { ...half('r1'), allocationPercent: percent };
+    expect(calculateOfficial(match(), official, 'E').points).toBe(points);
+  });
+  it('导出中的积分使用固定一位小数格式，场次仍支持 0.5', () => {
+    const d = seed(); d.matches[0].officials[0].allocationPercent = 80;
+    const archive = unzipSync(createSeasonWorkbook(d));
+    expect(strFromU8(archive['xl/styles.xml'])).toContain('numFmtId="165" formatCode="0.0"');
+    expect(strFromU8(archive['xl/worksheets/sheet1.xml'])).toMatch(/<c r="F2" s="5"><v>3\.2<\/v>/);
+    expect(strFromU8(archive['xl/worksheets/sheet1.xml'])).toMatch(/<c r="G2" s="3"><v>0\.5<\/v>/);
+  });
+  it('两人工资比例独立计算，80% + 60% 可超过 100%，积分按同比例核算，场次和实际补贴独立', () => {
+    const d = seed(); d.matches[0].officials = [{ ...half('r1', 'referee', 5), allocationPercent: 80 }, { ...half('r2', 'referee', 10), allocationPercent: 60 }];
+    const first = calculateOfficial(d.matches[0], d.matches[0].officials[0], 'E'), second = calculateOfficial(d.matches[0], d.matches[0].officials[1], 'E');
+    expect(first).toMatchObject({ points: 3.2, baseWage: 72, bonusWage: 5, wage: 77 });
+    expect(second).toMatchObject({ points: 2.4, baseWage: 54, bonusWage: 10, wage: 64 });
+    const rows = seasonExportRows(d).eleven;
+    expect(cell(rows[1], '新生-主')).toBe(0.5); expect(cell(rows[2], '新生-主')).toBe(0.5);
+    expect(rows[1].at(-1)).toBe(77); expect(rows[2].at(-1)).toBe(64);
+    const sheet = parseWorkbook(createSeasonWorkbook(d)).getWorksheet('十一人制');
+    expect(Number(sheet.getRow(2).getCell(29).value)).toBe(77); expect(Number(sheet.getRow(3).getCell(29).value)).toBe(64);
+  });
+  it.each([[80, 60], [150, 100], [33.333, 12.5], [0, 200], [0, 0]])('允许非负任意比例、个人超过 100%% 和小数，保存和备份均保留：%s/%s', async (first, second) => {
+    const f = apiFixture(); const input = match({ officials: [{ ...half('r1'), allocationPercent: first }, { ...half('r2'), allocationPercent: second }] });
+    expect((await f.call(input)).status).toBe(200);
+    expect(f.data.matches[0].officials.map(o => o.allocationPercent)).toEqual([first, second]);
+    expect(validateSnapshot(f.data).matches[0].officials.map((o: Official) => o.allocationPercent)).toEqual([first, second]);
+  });
+  it('旧记录默认各 50%，自定义比例的基础工资保留到分', () => {
+    expect(officialAllocationFraction(half('r1'))).toBe(0.5);
+    expect(calculateOfficial(match(), { ...half('r1'), allocationPercent: 33.333 }, 'E').baseWage).toBe(30);
+    expect(calculateOfficial(match(), { ...half('r1'), allocationPercent: 100.125 }, 'E').baseWage).toBe(90.11);
+    expect(officialAllocationFraction({ role: 'referee', refereeId: 'r1', name: 'r1' })).toBe(1);
+  });
+  it.each([-1, NaN, Infinity, '80'])('非法工资比例被原子拒绝：%s', async (value) => {
+    const f = apiFixture(), before = structuredClone(f.data);
+    const input = match({ officials: [{ ...half('r1'), allocationPercent: value as number }, half('r2')] });
+    expect((await f.call(input)).status).toBe(400); expect(f.writes).toBe(0); expect(f.data).toEqual(before);
+    const snapshot = structuredClone(before); snapshot.matches[0].officials[0].allocationPercent = value as number;
+    expect(() => validateSnapshot(snapshot)).toThrow(/分配比例/);
+  });
+  it('普通整场岗位不能混入续赛工资比例', async () => {
+    const f = apiFixture();
+    expect((await f.call(match({ officials: [{ role: 'referee', refereeId: 'r1', name: 'r1', allocationPercent: 80 }] }))).status).toBe(400);
+    expect(f.writes).toBe(0);
+  });
   it('正常比赛默认隐藏，只有中断且完整填写接续时间才允许开启续赛选派', () => {
     const normal = match({ officials: [{ role: 'referee', refereeId: 'r1', name: 'r1' }] });
     expect(interruptionSettings(normal)).toEqual({ interrupted: false, resumption: undefined });
@@ -80,11 +126,11 @@ describe('续赛换裁与赛事分项导出', () => {
     expect(getSeasonWage(d.referees[0], 'eleven', '2026–27', d.matches, [])!.total).toBeCloseTo(32.5);
   });
 
-  it('五人制第三裁判半场及 0.75 分保留精度', () => {
+  it('五人制第三裁判半场积分四舍五入到一位小数', () => {
     const d = seed(); d.matches = [match({ channel: 'five', event: 'womens-pku-cup', competition: '女足北大杯', stage: 'semifinal', officials: [half('r1', 'third', 1), half('r2', 'third', 2)] })];
     const rows = seasonExportRows(d).five;
-    expect(rows[1][4]).toBe(0.5); expect(rows[1][7]).toBe(0.75); expect(rows[1][9]).toBe(11); expect(rows[2][9]).toBe(12);
-    expect(formatPoints(0.75)).toBe('0.75'); expect(formatPoints(4)).toBe('4.0');
+    expect(rows[1][4]).toBe(0.5); expect(rows[1][7]).toBe(0.8); expect(rows[1][9]).toBe(11); expect(rows[2][9]).toBe(12);
+    expect(formatPoints(0.75)).toBe('0.8'); expect(formatPoints(4)).toBe('4.0');
   });
 
   it('12 个北大杯分项按甲乙、阶段及岗位分别统计，附加助理计入助理', () => {
@@ -134,12 +180,14 @@ describe('续赛换裁与赛事分项导出', () => {
 
   it('普通选派 Excel 重传保留已有续赛信息，改变该岗位时明确拒绝覆盖', () => {
     const d = seed();
+    d.matches[0].officials[0].allocationPercent = 80; d.matches[0].officials[1].allocationPercent = 60;
     const file = (name: string) => {
       const rows = [['日期', '时间', '场地', '主队', '客队', '主裁判'], ['10.3', '12-14', '测试场', '甲队', '乙队', name]];
       const xml = rows.map((row, i) => `<row r="${i+1}">${row.map((value, c) => `<c r="${String.fromCharCode(65+c)}${i+1}" t="inlineStr"><is><t>${value}</t></is></c>`).join('')}</row>`).join('');
       return zipSync({ 'xl/workbook.xml': strToU8('<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="测试" sheetId="1" r:id="rId1"/></sheets></workbook>'), 'xl/_rels/workbook.xml.rels': strToU8('<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'), 'xl/worksheets/sheet1.xml': strToU8(`<worksheet><sheetData>${xml}</sheetData></worksheet>`) });
     };
     importAssignmentWorkbook(d, file('r1')); expect(d.matches[0].officials.filter(o => o.role === 'referee')).toHaveLength(2); expect(d.matches[0].officials[0].fraction).toBe(0.5);
+    expect(d.matches[0].officials.filter(o => o.role === 'referee').map(o => o.allocationPercent)).toEqual([80, 60]);
     expect(() => importAssignmentWorkbook(d, file('改名裁判'))).toThrow(/续赛换裁/);
   });
 });

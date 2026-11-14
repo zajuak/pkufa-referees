@@ -37,6 +37,7 @@ export interface Official {
   name: string;
   substitute?: boolean;
   fraction?: 0.5 | 1;
+  allocationPercent?: number;
   actualBonus?: number;
   dutyDate?: string;
   dutyTime?: string;
