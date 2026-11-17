@@ -39,7 +39,7 @@ export function assignmentOccurrences(matches: Match[], fallbackSeason = '2026�
     const roles = [...new Set(match.officials.map(o => o.role))];
     const original = { ...match, officials: roles.flatMap(role => match.officials.filter(o => o.role === role).slice(0, 1)) };
     const resumed = { ...match, id: `${match.id}:resumption`, sourceMatchId: match.id, ...interruptionSettings(match).resumption!, status: match.status === 'cancelled' ? 'cancelled' as const : 'scheduled' as const,
-      note: `接续比赛${match.note ? ` · 原场备注：${match.note}` : ''}`, officials: roles.flatMap(role => match.officials.filter(o => o.role === role).slice(-1)) };
+      note: '接续比赛', officials: roles.flatMap(role => match.officials.filter(o => o.role === role).slice(-1)) };
     return [original, resumed];
   });
   // Only copies are renumbered; the input remains the authoritative accounting data.
