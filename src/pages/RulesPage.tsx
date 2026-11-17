@@ -6,7 +6,6 @@ import { PageHeader } from '../components/ui';
 import { assetUrl, useData } from '../hooks/useData';
 import type { RuleBlock, RuleChapter, RulesData, WageStandards } from '../domain/types';
 import { defaultWageStandards } from '../domain/calculations';
-import { eventName } from '../domain/competitions';
 
 const wageTables: RulesData['wageTables'] = {
   eleven: {
@@ -317,15 +316,14 @@ function RuleBlockView({ block, wageStandards }: { block: RuleBlock; wageStandar
     );
   }
 
-  const events = block.table === 'eleven' ? (['freshmen-cup', 'mens-pku-cup'] as const) : (['womens-pku-cup'] as const);
+  const event = block.table === 'eleven' ? 'freshmen-cup' : 'womens-pku-cup';
   const levels = block.table === 'eleven' ? (['A', 'B', 'C', 'D', 'E'] as const) : (['A', 'B', 'C'] as const);
   const headers = block.table === 'eleven'
     ? ['级别', '裁判员', '助理裁判员', '第四官员']
     : ['级别', '第一裁判员与第二裁判员', '第三裁判员'];
-  return <>{events.map((event) => (
-    <div className="rules-table-wrap" key={event}>
+  return <div className="rules-table-wrap">
       <table className="rules-wage-table">
-        <caption>{eventName(event)}的工资标准</caption>
+        <caption>{block.table === 'eleven' ? '北大杯、新生杯的工资标准' : '女足北大杯的工资标准'}</caption>
         <thead>
           <tr>{headers.map((header) => <th scope="col" key={header}>{header}</th>)}</tr>
         </thead>
@@ -341,6 +339,5 @@ function RuleBlockView({ block, wageStandards }: { block: RuleBlock; wageStandar
           })}
         </tbody>
       </table>
-    </div>
-  ))}</>;
+    </div>;
 }

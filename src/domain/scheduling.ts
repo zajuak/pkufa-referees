@@ -1,4 +1,4 @@
-import { officialDuty, workloadIssues } from './workload.ts';
+import { officialDuties, workloadIssues } from './workload.ts';
 import { analyzeAvoidance } from './avoidance.ts';
 import type { GroupOrder, Match, Referee, Role, Team, Unavailability } from './types.ts';
 
@@ -34,14 +34,14 @@ export function assignmentAnalysis(match: Match, matches: Match[], leave: Unavai
   const assigned = match.officials.filter((o) => o.refereeId);
   const ids = assigned.map((o) => o.refereeId);
   if (new Set(ids).size !== ids.length) issues.add('同一场比赛不能重复选派同一名裁判员');
-  for (const official of assigned) {
-    const interval = matchInterval(officialDuty(match, official));
+  for (const official of assigned) for (const duty of officialDuties(match, official)) {
+    const interval = matchInterval(duty);
     if (interval && leave.some((item) => item.refereeId === official.refereeId && Date.parse(`${item.start}T00:00:00+08:00`) < interval[1] && Date.parse(`${item.end}T00:00:00+08:00`) + 86400000 > interval[0])) issues.add(`${official.name}在比赛时段已登记请假`);
     if (!interval) continue;
     for (const other of matches) {
       if (other.id === match.id || other.status === 'cancelled' || !other.officials.some((o) => o.refereeId === official.refereeId)) continue;
-      for (const otherOfficial of other.officials.filter((o) => o.refereeId === official.refereeId)) {
-        const otherTime = matchInterval(officialDuty(other, otherOfficial));
+      for (const otherOfficial of other.officials.filter((o) => o.refereeId === official.refereeId)) for (const otherDuty of officialDuties(other, otherOfficial)) {
+        const otherTime = matchInterval(otherDuty);
         if (otherTime && interval[0] < otherTime[1] && otherTime[0] < interval[1]) issues.add(`${official.name}与 ${other.date} ${other.time} ${other.home || other.group}—${other.away} 的选派时间冲突`);
       }
     }

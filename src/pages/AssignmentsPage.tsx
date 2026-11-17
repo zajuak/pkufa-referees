@@ -11,6 +11,7 @@ import { matchSemester, semesterLabel, semesterWeekRange, type Semester } from '
 import { exportAssignments, exportCalendar } from '../domain/downloads';
 import { additionalAssistantRoles, usesAdditionalAssistants } from '../domain/scheduling';
 import { matchAvoidanceSummary } from '../domain/avoidance';
+import { assignmentOccurrences } from '../domain/workload';
 import type { Channel, Role } from '../domain/types';
 
 const assignmentRoles: Record<Channel, Role[]> = {
@@ -27,10 +28,11 @@ export default function AssignmentsPage() {
   const channel = params.get('channel') || 'all';
   const event = params.get('event') || 'all';
   const venue = params.get('venue') || 'all';
-  const seasonMatches = useMemo(() => data!.matches
+  const schedule = useMemo(() => assignmentOccurrences(data!.matches, data!.meta.season), [data]);
+  const seasonMatches = useMemo(() => schedule
     .filter((match) => (match.season || CURRENT_SEASON) === season)
     .filter((match) => channel === 'all' || match.channel === channel)
-    .filter((match) => event === 'all' || getMatchEvent(match) === event), [data, season, channel, event]);
+    .filter((match) => event === 'all' || getMatchEvent(match) === event), [schedule, season, channel, event]);
   const todaySemester = matchSemester({ date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date()) });
   const latestMatch = [...seasonMatches].sort((a, b) => b.date.localeCompare(a.date))[0];
   const defaultSemester = season === data!.meta.season && seasonMatches.some((match) => matchSemester(match) === todaySemester)
@@ -58,7 +60,7 @@ export default function AssignmentsPage() {
     setParams(next);
   };
   const weekRange = (value: number) => {
-    const dates = semesterWeekRange(value, season, semester, data!.matches, data!.meta.season);
+    const dates = semesterWeekRange(value, season, semester, schedule, data!.meta.season);
     if (!dates) return '';
     const short = (date: string) => `${Number(date.slice(5, 7))}.${Number(date.slice(8, 10))}`;
     return `${short(dates[0])} — ${short(dates[1])}`;
@@ -88,7 +90,7 @@ export default function AssignmentsPage() {
           <thead><tr><th>日期</th><th>时间</th><th>赛制 / 赛事</th><th>场地</th><th>组别 / 阶段</th><th>对阵</th>{roleLabels.map((label) => <th key={label}>{label}</th>)}<th>状态 / 备注</th><th className="assignment-avoidance-cell">回避</th></tr></thead>
           <tbody>{filtered.map((match) => {
             const status = effectiveMatchStatus(match);
-            const avoidance = avoidanceSummaries.get(match.id)!;
+            const avoidance = avoidanceSummaries.get(match.sourceMatchId || match.id)!;
             return <tr className={status} key={match.id}>
               <td data-label="日期"><div className="assignment-date"><strong>{formatDate(match.date)}</strong><small>第 {match.week} 周</small></div></td>
               <td className="assignment-time" data-label="时间">{match.time || '时间待定'}</td>

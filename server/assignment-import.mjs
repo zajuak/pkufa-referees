@@ -3,6 +3,9 @@ import { recalculateMatchWeeks } from '../src/domain/weeks.ts';
 import { additionalAssistantRoles, usesAdditionalAssistants } from '../src/domain/scheduling.ts';
 import { randomUUID } from 'node:crypto';
 import { parseWorkbook } from './xlsx.mjs';
+import { matchSemester, matchWeek } from '../src/domain/weeks.ts';
+import { normalizeColleges } from './validation.mjs';
+import { workloadIssues, interruptionIssues } from '../src/domain/workload.ts';
 
 function text(value) {
   if (value === null || value === undefined) return '';
@@ -70,6 +73,7 @@ function defaultChannelData(channel) {
 
 function makeOfficial(store, role, rawName, channel, context) {
   const name = text(rawName);
+  if (context.deferOfficials) return { role, refereeId: null, name };
   if (!name) return { role, refereeId: null, name: '' };
   const sameChannel = store.referees.filter((referee) => referee.name === name && referee.channels[channel]);
   if (sameChannel.length === 1) return { role, refereeId: sameChannel[0].id, name };
@@ -112,7 +116,14 @@ function headerColumn(row, ...names) {
 
 function matchColumns(row) {
   const column = (...names) => headerColumn(row, ...names);
-  return { group: column('组别'), stage: column('比赛类别', '比赛阶段', '阶段'), venue: column('场地'), home: column('主队'), away: column('客队'), note: column('备注') };
+  return { group: column('组别'), stage: column('比赛类别', '比赛阶段', '阶段'), venue: column('场地'), home: column('主队'), away: column('客队'), avoidance: column('回避', '回避学院'), note: column('备注') };
+}
+
+function rowSettings(match, sheet, rowNumber, columns, row, context) {
+  const raw = columns.avoidance ? cellText(row, columns.avoidance) : '';
+  const colleges = raw ? /^(无|无回避|无需回避|[-—–])$/.test(raw) ? [] : [...new Set(raw.normalize('NFKC').split(/[、,，;；\n\r/|]+/).map(v => v.trim()).filter(Boolean))] : undefined;
+  if (colleges !== undefined) match.avoidanceOverride = { mode: 'replace', colleges };
+  context.rows.set(match, { key: `${sheet.name}:${rowNumber}`, sheet: sheet.name, row: rowNumber, continuation: /接续比赛|续赛/.test(match.note) });
 }
 
 function fiveColumns(row, modern, sheetName, rowNumber) {
@@ -161,6 +172,7 @@ function parseSheet(sheet, season, store, context, selectedEvent) {
         officials: cancelled ? [] : columns.roles.map(([role, column]) => makeOfficial(store, role, column ? row.getCell(column).value : '', 'eleven', context)),
       };
       context.stageLabels.set(importedMatch, stage || group);
+      rowSettings(importedMatch, sheet, rowNumber, columns, row, context);
       matches.push(importedMatch);
     }
   }
@@ -187,6 +199,7 @@ function parseSheet(sheet, season, store, context, selectedEvent) {
       };
       context.providedRoles.set(importedMatch, new Set(columns.roles.filter(([, column]) => column).map(([role]) => role)));
       context.stageLabels.set(importedMatch, stage || group);
+      rowSettings(importedMatch, sheet, rowNumber, columns, row, context);
       matches.push(importedMatch);
     }
   }
@@ -195,10 +208,10 @@ function parseSheet(sheet, season, store, context, selectedEvent) {
 
 const signature = (match) => [match.channel, match.date, match.time, match.competition, match.home, match.away].join('|');
 
-export function importAssignmentWorkbook(store, buffer, season = '2026–27', selectedEvent = 'freshmen-cup') {
+function readAssignments(store, buffer, season, selectedEvent) {
   if (!Object.hasOwn(eventCompetitions, selectedEvent)) throw new Error('未知赛事分类');
   const workbook = parseWorkbook(buffer);
-  const context = { newReferees: 0, providedRoles: new WeakMap(), stageLabels: new WeakMap() };
+  const context = { newReferees: 0, deferOfficials: true, providedRoles: new WeakMap(), stageLabels: new WeakMap(), rows: new WeakMap() };
   const parsedSheets = workbook.worksheets
     .filter((sheet) => !sheet.name.includes('总览'))
     .map((sheet) => ({ sheet, matches: parseSheet(sheet, season, store, context, selectedEvent) }))
@@ -206,17 +219,149 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
   const imported = parsedSheets.flatMap((item) => item.matches);
   if (!imported.length) throw new Error('没有识别到赛程，请使用与当前选派表相同的 Excel 格式');
   if (imported.length > 500) throw new Error('单次最多导入 500 场比赛');
+  return { context, parsedSheets, imported };
+}
+
+function weekKey(match) {
+  const date = new Date(`${match.date}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() - 4 + 7) % 7));
+  return date.toISOString().slice(0, 10);
+}
+
+function existingFor(store, parsed, season, excluded = new Set()) {
+  const candidates = store.matches.filter(m => !excluded.has(m.id) && (m.season || season) === season && signature(m) === signature(parsed));
+  const grouped = parsed.group ? candidates.filter(m => m.group === parsed.group) : [];
+  const matching = grouped.length ? grouped : candidates;
+  if (matching.length > 1) throw new Error(`${parsed.date} ${parsed.time} ${parsed.home}—${parsed.away} 对应多场比赛，请填写组别以明确更新场次`);
+  return matching[0];
+}
+
+function continuationCandidates(store, parsed, season, imported = [], context) {
+  const candidates = store.matches.filter(m => (m.season || season) === season && m.channel === parsed.channel && m.event === parsed.event
+    && m.home === parsed.home && m.away === parsed.away && m.status !== 'cancelled' && `${m.date} ${m.time}` < `${parsed.date} ${parsed.time}`
+    && (m.interrupted || !/接续比赛|续赛/.test(m.note || '')));
+  for (const m of imported) {
+    if (m.channel !== parsed.channel || m.event !== parsed.event || m.home !== parsed.home || m.away !== parsed.away || m.status === 'cancelled'
+      || `${m.date} ${m.time}` >= `${parsed.date} ${parsed.time}` || context.rows.get(m).continuation || existingFor(store, m, season)) continue;
+    candidates.push({ ...m, id: `row:${context.rows.get(m).key}` });
+  }
+  return candidates.sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function continuationRoles(original, parsed) {
+  return parsed.officials.flatMap(incoming => {
+    const previous = original.officials.filter(o => o.role === incoming.role);
+    const last = previous.at(-1);
+    if (!incoming.name || !last?.name || incoming.name === last.name) return [];
+    return [{ role: incoming.role, originalName: previous[0].name, resumedName: incoming.name,
+      originalPercent: previous[0].allocationPercent ?? 50, resumedPercent: last?.fraction === 0.5 ? last.allocationPercent ?? 50 : 50,
+      originalBonus: previous[0].fraction === 0.5 ? previous[0].actualBonus : undefined }];
+  });
+}
+
+function linkContinuation(store, original, parsed, season, decision, context) {
+  if (original.result) throw new Error('原场已登记赛果，请先在比赛设定中核对并清除未完赛赛果，再关联续赛');
+  const duplicate = existingFor(store, parsed, season);
+  if (duplicate && duplicate.id !== original.id) {
+    const used = duplicate.result || duplicate.officials.some(o => o.refereeId || o.name)
+      || store.adjustments.some(a => a.matchId === duplicate.id)
+      || store.matches.some(m => [m.homeSource, m.awaySource].some(s => s?.kind === 'match' && s.matchId === duplicate.id));
+    if (used) throw new Error('已存在的独立续赛记录有选派、赛果、奖惩或晋级引用，请先在比赛设定中核对，不能自动合并');
+    store.matches = store.matches.filter(m => m.id !== duplicate.id);
+  }
+  const changes = new Map(continuationRoles(original, parsed).map(r => [r.role, r]));
+  for (const incoming of parsed.officials) {
+    if (!incoming.name) continue; // Blank continuation cells retain the original assignment.
+    const previous = original.officials.filter(o => o.role === incoming.role);
+    if (!changes.has(incoming.role)) {
+      if (!previous.length || !previous[0].name) {
+        original.officials = original.officials.filter(o => o.role !== incoming.role);
+        original.officials.push(makeOfficial(store, incoming.role, incoming.name, parsed.channel, context));
+      } else if (previous.length === 2) Object.assign(previous[1], { dutyDate: parsed.date, dutyTime: parsed.time });
+      continue;
+    }
+    const split = decision.roles?.[incoming.role];
+    if (!split || ['originalBonus', 'resumedBonus', 'originalPercent', 'resumedPercent'].some(k => typeof split[k] !== 'number' || !Number.isFinite(split[k]) || split[k] < 0)) throw new Error('检测到续赛换裁，请确认双方的分配比例及实际补贴（可填 0）');
+    const first = { ...previous[0], fraction: 0.5, allocationPercent: split.originalPercent, actualBonus: split.originalBonus, dutyDate: original.date, dutyTime: original.time };
+    const second = { ...makeOfficial(store, incoming.role, incoming.name, parsed.channel, context), fraction: 0.5, allocationPercent: split.resumedPercent, actualBonus: split.resumedBonus, dutyDate: parsed.date, dutyTime: parsed.time };
+    const index = original.officials.findIndex(o => o.role === incoming.role);
+    original.officials = original.officials.filter(o => o.role !== incoming.role);
+    original.officials.splice(index, 0, first, second);
+  }
+  for (const role of new Set(original.officials.map(o => o.role))) {
+    const pair = original.officials.filter(o => o.role === role);
+    if (pair.length === 2) Object.assign(pair[1], { dutyDate: parsed.date, dutyTime: parsed.time });
+  }
+  Object.assign(original, { interrupted: true, resumption: { date: parsed.date, time: parsed.time }, status: 'scheduled' });
+  if (parsed.avoidanceOverride !== undefined) original.avoidanceOverride = parsed.avoidanceOverride;
+  const issues = [...workloadIssues(original.officials), ...interruptionIssues(original)];
+  if (issues.length) throw new Error(issues.join('；'));
+}
+
+export function previewAssignmentWorkbook(store, buffer, season = '2026–27', selectedEvent = 'freshmen-cup') {
+  const { context, imported } = readAssignments(store, buffer, season, selectedEvent);
+  const dates = [...store.matches, ...imported.map((m, i) => ({ ...m, id: `preview-${i}`, season }))];
+  const rows = imported.map(parsed => {
+    const metadata = context.rows.get(parsed), existing = existingFor(store, parsed, season);
+    const candidates = metadata.continuation ? continuationCandidates(store, parsed, season, imported, context).map(m => {
+      const uploaded = imported.find(item => !context.rows.get(item).continuation && signature(item) === signature(m));
+      const projected = uploaded && { ...m, officials: uploaded.officials.flatMap(o => {
+        const previous = m.officials.filter(old => old.role === o.role);
+        return previous.some(old => old.fraction === 0.5) && previous[0]?.name === o.name ? previous : [o];
+      }) };
+      return { id: m.id, date: m.date, time: m.time, home: m.home, away: m.away, roles: continuationRoles(m, parsed),
+        ...(uploaded ? { uploadedOriginal: { weekKey: weekKey(uploaded), roles: continuationRoles(projected, parsed) } } : {}) };
+    }) : [];
+    return { ...metadata, weekKey: weekKey(parsed), date: parsed.date, time: parsed.time, home: parsed.home, away: parsed.away, stage: parsed.stage,
+      action: existing ? 'update' : 'add', existingId: existing?.id, colleges: parsed.avoidanceOverride?.colleges,
+      unknownColleges: (parsed.avoidanceOverride?.colleges || []).filter(c => !(store.colleges || []).some(v => v.normalize('NFKC').toLocaleLowerCase() === c.toLocaleLowerCase())), candidates };
+  });
+  const weeks = [...new Set(rows.map(r => r.weekKey))].sort().reverse().map(key => {
+    const end = new Date(`${key}T00:00:00Z`); end.setUTCDate(end.getUTCDate() + 6);
+    const first = imported.find(m => weekKey(m) === key);
+    return { key, end: end.toISOString().slice(0, 10), semester: matchSemester(first), week: matchWeek({ ...first, id: 'preview-week', season }, dates, store.meta.season), count: rows.filter(r => r.weekKey === key).length };
+  });
+  return { revision: store.revision || 0, weeks, rows };
+}
+
+export function importAssignmentWorkbook(store, buffer, season = '2026–27', selectedEvent = 'freshmen-cup', options = {}) {
+  const { context, parsedSheets, imported } = readAssignments(store, buffer, season, selectedEvent);
+  const availableWeeks = new Set(imported.map(weekKey));
+  if (options.weeks !== undefined && (!Array.isArray(options.weeks) || !options.weeks.length || options.weeks.some(w => !availableWeeks.has(w)))) throw new Error('请选择文件中需要更新的周次');
+  const selectedWeeks = new Set(options.weeks || availableWeeks);
+  const selected = imported.filter(m => selectedWeeks.has(weekKey(m)));
+  const candidateIds = new Map(selected.map(m => [m, continuationCandidates(store, m, season, imported, context)]));
+  context.deferOfficials = false;
+  let linked = 0;
+  const linkedIds = new Set();
 
   let nextWeek = Math.max(0, ...store.matches.map((match) => match.week));
   const originalIds = new Set(store.matches.map((match) => match.id));
   const matchedIds = new Set();
   let added = 0;
   let updated = 0;
-  for (const { matches } of parsedSheets) {
+  for (const continuationPass of [false, true]) for (const { matches: sheetMatches } of parsedSheets) {
+    const matches = sheetMatches.filter(m => selected.includes(m) && context.rows.get(m).continuation === continuationPass);
+    if (!matches.length) continue;
     const dates = matches.map((match) => match.date);
     const knownWeek = store.matches.find((match) => dates.includes(match.date))?.week;
     const week = knownWeek || ++nextWeek;
     for (const parsed of matches) {
+      if (parsed.avoidanceOverride) parsed.avoidanceOverride.colleges = normalizeColleges(parsed.avoidanceOverride.colleges, store.colleges || [], 100);
+      const metadata = context.rows.get(parsed);
+      if (metadata.continuation) {
+        const decision = options.continuations?.[metadata.key];
+        if (!decision?.matchId) throw new Error(`${parsed.date} ${parsed.home}—${parsed.away} 备注为接续比赛，请在导入预览中确认原场`);
+        const candidate = candidateIds.get(parsed).find(m => m.id === decision.matchId);
+        const original = candidate?.id.startsWith('row:') ? existingFor(store, candidate, season) : store.matches.find(m => m.id === candidate?.id);
+        if (!original) throw new Error('接续比赛的原场无效，请重新预览并选择');
+        if (linkedIds.has(original.id)) throw new Error('同一原场不能在本次导入中关联多个续赛时段，请在比赛设定中核对');
+        linkedIds.add(original.id);
+        linkContinuation(store, original, parsed, season, decision, context);
+        linked += 1;
+        continue;
+      }
+      parsed.officials = parsed.officials.map(o => makeOfficial(store, o.role, o.name, parsed.channel, context));
       const candidates = store.matches.filter((match) => originalIds.has(match.id) && !matchedIds.has(match.id) && (match.season || season) === season && signature(match) === signature(parsed));
       const sameGroup = parsed.group ? candidates.filter((match) => match.group === parsed.group) : [];
       const matching = sameGroup.length ? sameGroup : candidates;
@@ -244,7 +389,7 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
         const manual = {
           ...(existing.result !== undefined ? { result: existing.result } : {}),
           ...(existing.placementMode !== undefined ? { placementMode: existing.placementMode } : {}),
-          ...(existing.avoidanceOverride !== undefined ? { avoidanceOverride: existing.avoidanceOverride } : {}),
+          ...((parsed.avoidanceOverride ?? existing.avoidanceOverride) !== undefined ? { avoidanceOverride: parsed.avoidanceOverride ?? existing.avoidanceOverride } : {}),
           ...(existing.homeSource !== undefined ? { homeSource: existing.homeSource } : {}),
           ...(existing.awaySource !== undefined ? { awaySource: existing.awaySource } : {}),
         };
@@ -272,5 +417,5 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
     cancelledMatches: store.matches.filter((match) => match.status === 'cancelled').length,
   };
   store.meta.importedAt = new Date().toISOString();
-  return { added, updated, newReferees: context.newReferees, total: imported.length };
+  return { added, updated, linked, newReferees: context.newReferees, total: selected.length };
 }

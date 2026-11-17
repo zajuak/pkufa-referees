@@ -5,7 +5,7 @@ import { readableStore } from './access.mjs';
 import { initialChannelStats, normalizeRefereeName, refereeNameKey } from '../src/domain/referees.ts';
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
-import { importAssignmentWorkbook } from './assignment-import.mjs';
+import { importAssignmentWorkbook, previewAssignmentWorkbook } from './assignment-import.mjs';
 import { additionalAssistantRoles, assignmentIssues, matchInterval } from '../src/domain/scheduling.ts';
 import { applyAdvancement } from '../src/domain/avoidance.ts';
 import { previewStandingsResults } from '../src/domain/standings-import.ts';
@@ -421,11 +421,21 @@ app.delete('/api/rules', requireAdmin, async (_req, res) => {
   res.status(204).end();
 });
 
+app.post('/api/import-assignments/preview', requireAdmin, (req, res, next) => {
+  try {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) throw new Error('请选择要上传的 Excel 文件');
+    res.json(previewAssignmentWorkbook(store, req.body, text(req.query.season, 30) || '2026–27', text(req.query.event, 30) || 'freshmen-cup'));
+  } catch (error) { next(error); }
+});
+
 app.post('/api/import-assignments', requireAdmin, async (req, res, next) => {
   try {
     if (!Buffer.isBuffer(req.body) || !req.body.length) throw new Error('请选择要上传的 Excel 文件');
     const previousMatches = structuredClone(store.matches);
-    const result = importAssignmentWorkbook(store, req.body, text(req.query.season, 30) || '2026–27', text(req.query.event, 30) || 'freshmen-cup');
+    const options = req.query.options ? JSON.parse(req.query.options) : {};
+    if (req.query.options && (!options || Array.isArray(options) || options.revision !== (before.revision || 0))) throw Object.assign(new Error('预览后数据已变化，请重新上传预览后再确认'), { status: 409 });
+    if (req.query.options && !Array.isArray(options.weeks)) throw new Error('请选择需要更新的周次');
+    const result = importAssignmentWorkbook(store, req.body, text(req.query.season, 30) || '2026–27', text(req.query.event, 30) || 'freshmen-cup', options);
     // Validate changed matches in the transaction; unrelated old conflicts do not block imports.
     const oldMatches = applyAdvancement(previousMatches, store.groupOrders || [], store.teams || []);
     const changedIds = store.matches.filter((match) => {

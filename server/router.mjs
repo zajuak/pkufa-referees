@@ -30,7 +30,7 @@ export class Router {
         if (origin && new URL(origin).host !== url.host && !(['localhost', '127.0.0.1'].includes(url.hostname) && ['localhost', '127.0.0.1'].includes(new URL(origin).hostname))) throw Object.assign(new Error('不允许跨站修改数据'), { status: 403 });
         const bytes = Buffer.from(await this.request.arrayBuffer());
         if (bytes.length > 5 * 1024 * 1024) throw new Error('文件不能超过 5 MB');
-        body = url.pathname === '/api/import-assignments' ? bytes : bytes.length ? JSON.parse(bytes.toString()) : {};
+        body = ['/api/import-assignments', '/api/import-assignments/preview'].includes(url.pathname) ? bytes : bytes.length ? JSON.parse(bytes.toString()) : {};
       }
       const req = { body, params, headers: Object.fromEntries(this.request.headers), query: Object.fromEntries(url.searchParams) };
       const run = async (index) => {

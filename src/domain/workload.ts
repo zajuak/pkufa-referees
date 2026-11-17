@@ -1,4 +1,5 @@
 import type { Match, Official } from './types';
+import { recalculateMatchWeeks } from './weeks.ts';
 
 export const officialFraction = (official: Official) => official.fraction === 0.5 ? 0.5 : 1;
 export const officialAllocationFraction = (official: Official) => official.fraction === 0.5 ? (official.allocationPercent ?? 50) / 100 : 1;
@@ -23,6 +24,28 @@ function validResumption(value: Match['resumption']) {
 export function resumptionReady(match: InterruptedMatch) {
   const settings = interruptionSettings(match);
   return settings.interrupted === true && validResumption(settings.resumption);
+}
+
+export function officialDuties(match: Match, official: Official): Match[] {
+  const duty = officialDuty(match, official);
+  if (official.fraction === 0.5 || !resumptionReady(match)) return [duty];
+  return [duty, { ...match, ...interruptionSettings(match).resumption! }];
+}
+
+// A continuation appears on both calendar dates but remains one billable match.
+export function assignmentOccurrences(matches: Match[], fallbackSeason = '2026–27'): (Match & { sourceMatchId?: string })[] {
+  const occurrences = matches.flatMap(match => {
+    if (!resumptionReady(match)) return [match];
+    const roles = [...new Set(match.officials.map(o => o.role))];
+    const original = { ...match, officials: roles.flatMap(role => match.officials.filter(o => o.role === role).slice(0, 1)) };
+    const resumed = { ...match, id: `${match.id}:resumption`, sourceMatchId: match.id, ...interruptionSettings(match).resumption!, status: match.status === 'cancelled' ? 'cancelled' as const : 'scheduled' as const,
+      note: `接续比赛${match.note ? ` · 原场备注：${match.note}` : ''}`, officials: roles.flatMap(role => match.officials.filter(o => o.role === role).slice(-1)) };
+    return [original, resumed];
+  });
+  // Only copies are renumbered; the input remains the authoritative accounting data.
+  const copies = occurrences.map(m => ({ ...m }));
+  recalculateMatchWeeks(copies, fallbackSeason);
+  return copies;
 }
 export function interruptionIssues(match: InterruptedMatch) {
   if (match.interrupted !== undefined && typeof match.interrupted !== 'boolean') return ['比赛中断设置格式不正确'];
