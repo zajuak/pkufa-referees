@@ -28,5 +28,6 @@ export function normalizeStageDetail(value: unknown, stage: Stage, channel: Chan
 export function matchStageLabel(match: Pick<Match, 'channel' | 'group' | 'stage' | 'stageDetail'>): string {
   const label = match.stageDetail || stageLabel(match.stage, match.channel);
   if (match.channel === 'five' || match.stage === 'placement') return [...new Set([match.group, label].filter(Boolean))].join(' · ');
+  if (match.stage === 'group') return match.group || label;
   return match.stageDetail || match.group || label;
 }

@@ -37,6 +37,10 @@ function fixture(initial = seed()) {
 }
 
 describe('选派导入预览、按周确认及续赛合并', () => {
+  it('十一人制小组赛保留组名，具体轮次仅替换淘汰阶段的通用显示', () => {
+    expect(matchStageLabel({ channel: 'eleven', stage: 'group', stageDetail: '小组赛', group: 'A' })).toBe('A');
+    expect(matchStageLabel({ channel: 'eleven', stage: 'knockout', stageDetail: '1/4决赛', group: '淘汰赛' })).toBe('1/4决赛');
+  });
   it.each(['1/4决赛', '1/8决赛', '四分之一决赛', '十二进八'])('保留 Excel 具体阶段名称 %s，工资积分仍按淘汰赛计算', detail => {
     const d = seed(), values = row('11.21'); values[3] = detail;
     upload(d, workbook([values])); const m = d.matches[0];
