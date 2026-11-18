@@ -353,6 +353,8 @@ table { width: 100%; border-collapse: collapse; }
 .import-preview-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
 .import-preview-table th, .import-preview-table td { padding: 10px; border-bottom: 1px solid var(--line); min-width: 120px; vertical-align: top; }
 .import-preview-table small { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; }
+.import-match-target { display: flex; flex-direction: column; gap: 7px; min-width: 190px; }
+.import-match-target select { width: 100%; max-width: 230px; padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: white; }
 .import-continuations label { display: flex; flex-direction: column; gap: 7px; font-size: 12px; }
 .import-continuations select, .import-continuations input { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: white; }
 .import-split { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }

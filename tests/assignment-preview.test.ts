@@ -37,6 +37,45 @@ function fixture(initial = seed()) {
 }
 
 describe('选派导入预览、按周确认及续赛合并', () => {
+  it('同日改时间更新原比赛编号并保留空白表格未提供的网站选派', async () => {
+    const d = seed(); upload(d, workbook([row('11.21', '甲队', '乙队', '网站裁判')])); const original = d.matches[0];
+    const f = fixture(d), changed = row('11.21'); changed[1] = '20-22'; const file = workbook([changed]);
+    const preview = await (await f.call('/preview', file)).json(); expect(preview.rows[0]).toMatchObject({ action: 'reschedule', existingId: original.id, previousSchedule: { time: '16:00-18:00' } });
+    expect((await f.call('', file, { revision: 3, weeks: ['2026-11-19'] })).status).toBe(200);
+    expect(f.data.matches).toHaveLength(1); expect(f.data.matches[0]).toMatchObject({ id: original.id, time: '20:00-22:00', officials: original.officials, bonuses: ['late'] }); expect(f.data.referees).toHaveLength(1);
+  });
+  it('同周跨日改期更新原场，跨周须确认原场或明确新增', async () => {
+    const d = seed(); upload(d, workbook([row('11.21')])); const original = d.matches[0];
+    const same = fixture(d); expect((await same.call('', workbook([row('11.22')]), { revision: 3, weeks: ['2026-11-19'] })).status).toBe(200); expect(same.data.matches).toHaveLength(1); expect(same.data.matches[0].id).toBe(original.id);
+    const cross = fixture(d), file = workbook([row('11.28')]); const p = await (await cross.call('/preview', file)).json(); expect(p.rows[0].action).toBe('confirm');
+    expect((await cross.call('', file, { revision: 3, weeks: ['2026-11-26'] })).status).toBe(400); expect(cross.writes).toBe(0);
+    expect((await cross.call('', file, { revision: 3, weeks: ['2026-11-26'], matchTargets: { '赛程:2': original.id } })).status).toBe(200); expect(cross.data.matches).toHaveLength(1);
+    const separate = fixture(d); expect((await separate.call('', file, { revision: 3, weeks: ['2026-11-26'], matchTargets: { '赛程:2': 'new' } })).status).toBe(200); expect(separate.data.matches).toHaveLength(2);
+  });
+  it('同周同对阵多个候选须确认，仅修改指定比赛', async () => {
+    const d = seed(); upload(d, workbook([row('11.21')])); const original = d.matches[0]; d.matches.push({ ...structuredClone(original), id: 'other', time: '18:00-20:00' });
+    const f = fixture(d), changed = row('11.21'); changed[1] = '20-22'; const file = workbook([changed]); const p = await (await f.call('/preview', file)).json(); expect(p.rows[0].action).toBe('confirm'); expect(p.rows[0].matchCandidates).toHaveLength(2);
+    expect((await f.call('', file, { revision: 3, weeks: ['2026-11-19'] })).status).toBe(400); expect(f.writes).toBe(0);
+    expect((await f.call('', file, { revision: 3, weeks: ['2026-11-19'], matchTargets: { '赛程:2': original.id } })).status).toBe(200); expect(f.data.matches).toHaveLength(2); expect(f.data.matches.find(m => m.id === 'other')?.time).toBe('18:00-20:00');
+  });
+  it('明确两场赛程不会错误合并，重复行和多行指向同一场会被拒绝', async () => {
+    const d = seed(); upload(d, workbook([row('11.21')])); const original = d.matches[0]; const later = row('11.21'); later[1] = '20-22';
+    const f = fixture(d); expect((await f.call('', workbook([row('11.21'), later]), { revision: 3, weeks: ['2026-11-19'] })).status).toBe(200); expect(f.data.matches).toHaveLength(2);
+    const duplicate = fixture(d); expect((await duplicate.call('', workbook([row('11.21'), row('11.21')]))).status).toBe(400); expect(duplicate.writes).toBe(0);
+    const early = row('11.21'); early[1] = '12-14'; const ambiguous = fixture(d); expect((await ambiguous.call('', workbook([early, later]), { revision: 3, weeks: ['2026-11-19'], matchTargets: { '赛程:2': original.id, '赛程:3': original.id } })).status).toBe(400); expect(ambiguous.writes).toBe(0);
+  });
+  it('同一轮次别名可以改期，不同淘汰轮次不会合并', () => {
+    const d = seed(), first = row('11.21'); first[3] = '四分之一决赛'; upload(d, workbook([first])); const original = d.matches[0];
+    const same = row('11.21'); same[1] = '20-22'; same[3] = '1/4决赛'; upload(d, workbook([same])); expect(d.matches).toHaveLength(1); expect(d.matches[0].id).toBe(original.id);
+    const different = row('11.22'); different[3] = '1/8决赛'; upload(d, workbook([different])); expect(d.matches).toHaveLength(2);
+  });
+  it('已完成场次须确认且保留赛果，改期冲突时整批不保存', async () => {
+    const d = seed(); upload(d, workbook([row('11.21', '甲队', '乙队', '网站裁判')])); const original = d.matches[0]; original.status = 'completed'; original.result = { home: 1, away: 0 };
+    const changed = row('11.21'); changed[1] = '20-22'; const file = workbook([changed]); const done = fixture(d);
+    expect((await done.call('', file, { revision: 3, weeks: ['2026-11-19'] })).status).toBe(400); expect((await done.call('', file, { revision: 3, weeks: ['2026-11-19'], matchTargets: { '赛程:2': original.id } })).status).toBe(200); expect(done.data.matches[0].result).toEqual(original.result);
+    original.status = 'scheduled'; delete original.result; d.matches.push({ ...structuredClone(original), id: 'conflict', home: '丙队', away: '丁队', time: '20:00-22:00' }); const conflict = fixture(d), before = structuredClone(conflict.data);
+    expect((await conflict.call('', file, { revision: 3, weeks: ['2026-11-19'] })).status).toBe(400); expect(conflict.writes).toBe(0); expect(conflict.data).toEqual(before);
+  });
   it('十一人制小组赛保留组名，具体轮次仅替换淘汰阶段的通用显示', () => {
     expect(matchStageLabel({ channel: 'eleven', stage: 'group', stageDetail: '小组赛', group: 'A' })).toBe('A');
     expect(matchStageLabel({ channel: 'eleven', stage: 'knockout', stageDetail: '1/4决赛', group: '淘汰赛' })).toBe('1/4决赛');

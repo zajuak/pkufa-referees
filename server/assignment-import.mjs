@@ -7,6 +7,7 @@ import { parseWorkbook } from './xlsx.mjs';
 import { matchSemester, matchWeek } from '../src/domain/weeks.ts';
 import { normalizeColleges } from './validation.mjs';
 import { workloadIssues, interruptionIssues } from '../src/domain/workload.ts';
+import { getMatchEvent } from '../src/domain/competitions.ts';
 
 function text(value) {
   if (value === null || value === undefined) return '';
@@ -210,6 +211,13 @@ function readAssignments(store, buffer, season, selectedEvent) {
   const imported = parsedSheets.flatMap((item) => item.matches);
   if (!imported.length) throw new Error('没有识别到赛程，请使用与当前选派表相同的 Excel 格式');
   if (imported.length > 500) throw new Error('单次最多导入 500 场比赛');
+  const seen = new Set();
+  for (const match of imported) {
+    if (!match.home || !match.away) continue;
+    const key = `${signature(match)}|${match.group}`;
+    if (seen.has(key)) throw new Error(`${match.date} ${match.time} ${match.home}—${match.away} 在文件中重复，请先核对`);
+    seen.add(key);
+  }
   return { context, parsedSheets, imported };
 }
 
@@ -227,13 +235,60 @@ function existingFor(store, parsed, season, excluded = new Set()) {
   return matching[0];
 }
 
-function continuationCandidates(store, parsed, season, imported = [], context) {
+const teamKey = value => text(value).normalize('NFKC').replace(/\s+/g, '').toLocaleLowerCase();
+function sameFixture(left, right, season) {
+  if (!left.home || !left.away || !right.home || !right.away) return false;
+  if (left.channel !== right.channel || getMatchEvent(left) !== getMatchEvent(right) || (left.season || season) !== (right.season || season)
+    || teamKey(left.home) !== teamKey(right.home) || teamKey(left.away) !== teamKey(right.away)) return false;
+  if (left.group && right.group && left.group !== right.group) return false;
+  if (left.stage !== right.stage && !(left.stage === 'group' && !left.stageDetail)) return false;
+  // Different named knockout rounds are distinct fixtures, even with identical teams.
+  const round = m => {
+    if (m.stage !== 'knockout') return '';
+    const label = (m.stageDetail || m.group || '').replace(/\s/g, '').replaceAll('／', '/');
+    if (/四分之一|1\/4(?!\d)/.test(label)) return '1/4';
+    if (/八分之一|1\/8(?!\d)/.test(label)) return '1/8';
+    if (/十二进八|12进8/.test(label)) return '12-8';
+    return m.stageDetail && label !== '淘汰赛' ? label : '';
+  };
+  return !(round(left) && round(right) && round(left) !== round(right));
+}
+
+function assignmentPlan(store, imported, context, season, targets = {}) {
+  const plan = new Map();
+  for (const parsed of imported.filter(m => !context.rows.get(m).continuation)) {
+    const key = context.rows.get(parsed).key;
+    const exact = existingFor(store, parsed, season);
+    if (exact) {
+      if (targets[key] !== undefined && targets[key] !== exact.id) throw new Error('该时间的赛程已存在，请更新已有比赛');
+      plan.set(parsed, { existing: exact, action: 'update', candidates: [] });
+      continue;
+    }
+    const candidates = store.matches.filter(m => sameFixture(parsed, m, season) && m.status !== 'cancelled'
+      && !(weekKey(m) === weekKey(parsed) && imported.some(other => other !== parsed && !context.rows.get(other).continuation && signature(other) === signature(m))));
+    const target = targets[key];
+    if (target === 'new') { plan.set(parsed, { action: 'add', candidates }); continue; }
+    if (target !== undefined) {
+      const existing = candidates.find(m => m.id === target);
+      if (!existing) throw new Error('改期目标已失效，请重新预览并确认');
+      plan.set(parsed, { existing, action: 'reschedule', candidates }); continue;
+    }
+    const nearby = candidates.filter(m => weekKey(m) === weekKey(parsed) && matchSemester(m) === matchSemester(parsed));
+    const fileFixtures = imported.filter(other => !context.rows.get(other).continuation && sameFixture(parsed, other, season) && weekKey(other) === weekKey(parsed));
+    const existing = nearby.length === 1 && fileFixtures.length === 1 && nearby[0].status !== 'completed' && !nearby[0].result
+      && !nearby[0].interrupted && !nearby[0].resumption && !nearby[0].officials.some(o => o.fraction === 0.5) ? nearby[0] : undefined;
+    plan.set(parsed, { existing, action: existing ? 'reschedule' : candidates.length ? 'confirm' : 'add', candidates });
+  }
+  return plan;
+}
+
+function continuationCandidates(store, parsed, season, imported = [], context, plan) {
   const candidates = store.matches.filter(m => (m.season || season) === season && m.channel === parsed.channel && m.event === parsed.event
     && m.home === parsed.home && m.away === parsed.away && m.status !== 'cancelled' && `${m.date} ${m.time}` < `${parsed.date} ${parsed.time}`
     && (m.interrupted || !/接续比赛|续赛/.test(m.note || '')));
   for (const m of imported) {
     if (m.channel !== parsed.channel || m.event !== parsed.event || m.home !== parsed.home || m.away !== parsed.away || m.status === 'cancelled'
-      || `${m.date} ${m.time}` >= `${parsed.date} ${parsed.time}` || context.rows.get(m).continuation || existingFor(store, m, season)) continue;
+      || `${m.date} ${m.time}` >= `${parsed.date} ${parsed.time}` || context.rows.get(m).continuation || plan?.get(m)?.existing || existingFor(store, m, season)) continue;
     candidates.push({ ...m, id: `row:${context.rows.get(m).key}` });
   }
   return candidates.sort((a, b) => b.date.localeCompare(a.date));
@@ -292,11 +347,12 @@ function linkContinuation(store, original, parsed, season, decision, context) {
 
 export function previewAssignmentWorkbook(store, buffer, season = '2026–27', selectedEvent = 'freshmen-cup') {
   const { context, imported } = readAssignments(store, buffer, season, selectedEvent);
+  const plan = assignmentPlan(store, imported, context, season);
   const dates = [...store.matches, ...imported.map((m, i) => ({ ...m, id: `preview-${i}`, season }))];
   const rows = imported.map(parsed => {
-    const metadata = context.rows.get(parsed), existing = existingFor(store, parsed, season);
-    const candidates = metadata.continuation ? continuationCandidates(store, parsed, season, imported, context).map(m => {
-      const uploaded = imported.find(item => !context.rows.get(item).continuation && signature(item) === signature(m));
+    const metadata = context.rows.get(parsed), resolution = plan.get(parsed), existing = resolution?.existing || (metadata.continuation ? existingFor(store, parsed, season) : undefined);
+    const candidates = metadata.continuation ? continuationCandidates(store, parsed, season, imported, context, plan).map(m => {
+      const uploaded = imported.find(item => !context.rows.get(item).continuation && (signature(item) === signature(m) || plan.get(item)?.existing?.id === m.id));
       const projected = uploaded && { ...m, officials: uploaded.officials.flatMap(o => {
         const previous = m.officials.filter(old => old.role === o.role);
         return previous.some(old => old.fraction === 0.5) && previous[0]?.name === o.name ? previous : [o];
@@ -305,7 +361,10 @@ export function previewAssignmentWorkbook(store, buffer, season = '2026–27', s
         ...(uploaded ? { uploadedOriginal: { weekKey: weekKey(uploaded), roles: continuationRoles(projected, parsed) } } : {}) };
     }) : [];
     return { ...metadata, weekKey: weekKey(parsed), date: parsed.date, time: parsed.time, home: parsed.home, away: parsed.away, stage: parsed.stage, stageDetail: parsed.stageDetail,
-      action: existing ? 'update' : 'add', existingId: existing?.id, colleges: parsed.avoidanceOverride?.colleges,
+      action: resolution?.action || (existing ? 'update' : 'add'), existingId: existing?.id,
+      previousSchedule: existing ? { date: existing.date, time: existing.time } : undefined,
+      matchCandidates: (resolution?.candidates || []).map(m => ({ id: m.id, date: m.date, time: m.time, home: m.home, away: m.away, group: m.group })),
+      colleges: parsed.avoidanceOverride?.colleges,
       unknownColleges: (parsed.avoidanceOverride?.colleges || []).filter(c => !(store.colleges || []).some(v => v.normalize('NFKC').toLocaleLowerCase() === c.toLocaleLowerCase())), candidates };
   });
   const weeks = [...new Set(rows.map(r => r.weekKey))].sort().reverse().map(key => {
@@ -322,14 +381,23 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
   if (options.weeks !== undefined && (!Array.isArray(options.weeks) || !options.weeks.length || options.weeks.some(w => !availableWeeks.has(w)))) throw new Error('请选择文件中需要更新的周次');
   const selectedWeeks = new Set(options.weeks || availableWeeks);
   const selected = imported.filter(m => selectedWeeks.has(weekKey(m)));
-  const candidateIds = new Map(selected.map(m => [m, continuationCandidates(store, m, season, imported, context)]));
+  if (options.matchTargets !== undefined && (!options.matchTargets || typeof options.matchTargets !== 'object' || Array.isArray(options.matchTargets))) throw new Error('改期确认格式不正确');
+  const plan = assignmentPlan(store, imported, context, season, options.matchTargets);
+  const targetIds = new Set();
+  for (const m of selected.filter(m => !context.rows.get(m).continuation)) {
+    const resolution = plan.get(m);
+    if (resolution.action === 'confirm') throw new Error(`${m.date} ${m.home}—${m.away} 有多个或跨周原场候选，请在预览中确认更新目标或选择新增比赛`);
+    if (resolution.existing) {
+      if (targetIds.has(resolution.existing.id)) throw new Error('多行选派指向同一原比赛，请核对改期目标');
+      targetIds.add(resolution.existing.id);
+    }
+  }
+  const candidateIds = new Map(selected.filter(m => context.rows.get(m).continuation).map(m => [m, continuationCandidates(store, m, season, imported, context, plan)]));
   context.deferOfficials = false;
   let linked = 0;
   const linkedIds = new Set();
 
   let nextWeek = Math.max(0, ...store.matches.map((match) => match.week));
-  const originalIds = new Set(store.matches.map((match) => match.id));
-  const matchedIds = new Set();
   let added = 0;
   let updated = 0;
   for (const continuationPass of [false, true]) for (const { matches: sheetMatches } of parsedSheets) {
@@ -354,16 +422,12 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
         continue;
       }
       parsed.officials = parsed.officials.map(o => makeOfficial(store, o.role, o.name, parsed.channel, context));
-      const candidates = store.matches.filter((match) => originalIds.has(match.id) && !matchedIds.has(match.id) && (match.season || season) === season && signature(match) === signature(parsed));
-      const sameGroup = parsed.group ? candidates.filter((match) => match.group === parsed.group) : [];
-      const matching = sameGroup.length ? sameGroup : candidates;
-      if (matching.length > 1) throw new Error(`${parsed.date} ${parsed.time} ${parsed.home}—${parsed.away} 对应多场比赛，请填写组别以明确更新场次`);
-      const existing = matching[0];
+      const existing = plan.get(parsed).existing;
       if (existing) {
-        matchedIds.add(existing.id);
         const officials = parsed.officials.flatMap((official) => {
           const previousGroup = existing.officials.filter((item) => item.role === official.role);
           const previous = previousGroup[0];
+          if (plan.get(parsed).action === 'reschedule' && !official.name && previous) return previousGroup.map(item => ({ ...item }));
           if (previousGroup.some((item) => item.fraction === 0.5)) {
             if (parsed.channel === 'five' && !context.providedRoles.get(parsed)?.has(official.role)) return previousGroup.map((item) => ({ ...item }));
             if ((official.refereeId && official.refereeId === previous?.refereeId) || (!official.name && !previous?.name) || (official.name && official.name === previous?.name)) return previousGroup.map((item) => ({ ...item }));
