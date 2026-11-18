@@ -4,6 +4,8 @@ import type { DataStore, Match } from '../src/domain/types';
 import { assignmentIssues } from '../src/domain/scheduling';
 import { assignmentOccurrences } from '../src/domain/workload';
 import { matchAvoidanceSummary } from '../src/domain/avoidance';
+import { matchStageLabel } from '../src/domain/stages';
+import { calculateOfficial } from '../src/domain/calculations';
 // @ts-expect-error Shared server importer.
 import { importAssignmentWorkbook, previewAssignmentWorkbook } from '../server/assignment-import.mjs';
 // @ts-expect-error Shared Fetch API.
@@ -35,6 +37,28 @@ function fixture(initial = seed()) {
 }
 
 describe('选派导入预览、按周确认及续赛合并', () => {
+  it.each(['1/4决赛', '1/8决赛', '四分之一决赛', '十二进八'])('保留 Excel 具体阶段名称 %s，工资积分仍按淘汰赛计算', detail => {
+    const d = seed(), values = row('11.21'); values[3] = detail;
+    upload(d, workbook([values])); const m = d.matches[0];
+    expect(m).toMatchObject({ stage: 'knockout', stageDetail: detail }); expect(matchStageLabel(m)).toBe(detail);
+    const official = { role: 'referee' as const, refereeId: null, name: '' };
+    expect(calculateOfficial(m, official, 'C')).toEqual(calculateOfficial({ ...m, stageDetail: undefined }, official, 'C'));
+    expect(readableStore(d, { authenticated: false }).matches[0].stageDetail).toBe(detail);
+    expect(validateSnapshot(d).matches[0].stageDetail).toBe(detail);
+    values[3] = ''; upload(d, workbook([values]));
+    expect(d.matches[0]).toMatchObject({ stage: 'knockout', stageDetail: detail });
+  });
+  it('比赛设定保存及公开读取保留具体阶段名称，不允许显示名称误导阶段核算', async () => {
+    let d = seed(); upload(d, workbook([row('11.21')])); let writes = 0;
+    const repo = { load: async () => structuredClone(d), save: async (next: DataStore) => { d = structuredClone(next); writes++; } };
+    const call = (detail: unknown) => handleApi(new Request('https://test/api/matches/'+d.matches[0].id, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'If-Match': String(d.revision) }, body: JSON.stringify({ ...d.matches[0], stageDetail: detail }) }), repo, { authenticated: true });
+    expect((await call('1/4决赛')).status).toBe(200); expect(d.matches[0].stageDetail).toBe('1/4决赛');
+    const before = structuredClone(d);
+    for (const detail of ['决赛', 'x'.repeat(61), 123]) expect((await call(detail)).status).toBe(400);
+    expect(writes).toBe(1); expect(d).toEqual(before);
+    expect(() => validateSnapshot({ ...d, matches: [{ ...d.matches[0], stageDetail: '决赛' }] })).toThrow(/不一致/);
+    expect((await call('')).status).toBe(200); expect(d.matches[0].stageDetail).toBeUndefined();
+  });
   it('预览不创建裁判、不写库，按周四至周三和春秋学期分组', async () => {
     const f = fixture(), before = structuredClone(f.data);
     const response = await f.call('/preview', workbook([row('11.18', '甲队', '乙队', '新裁判'), row('11.19'), row('3.6')]));

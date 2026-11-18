@@ -1,5 +1,5 @@
 import { recalculateMatchBonuses } from '../src/domain/time-bonuses.ts';
-import { allowedStages } from '../src/domain/stages.ts';
+import { allowedStages, normalizeStageDetail } from '../src/domain/stages.ts';
 import { recalculateMatchWeeks } from '../src/domain/weeks.ts';
 import { readableStore } from './access.mjs';
 import { initialChannelStats, normalizeRefereeName, refereeNameKey } from '../src/domain/referees.ts';
@@ -180,6 +180,7 @@ function validateMatch(input) {
   }
   const stage = input.stage || 'group';
   if (!allowedStages(channel).includes(stage)) throw new Error(channel === 'five' ? '女足北大杯仅支持常规赛、排位赛、半决赛和决赛' : '请选择有效比赛阶段');
+  const stageDetail = normalizeStageDetail(input.stageDetail, stage, channel);
   const bonuses = Array.isArray(input.bonuses)
     ? input.bonuses.filter((item) => ['early', 'late', 'weekday', 'badWeather'].includes(item))
     : [];
@@ -204,6 +205,7 @@ function validateMatch(input) {
     homeColor: Object.hasOwn(input, 'homeColor') ? jerseyColor(input.homeColor) : teamColor(store, event, text(input.home, 60)),
     awayColor: Object.hasOwn(input, 'awayColor') ? jerseyColor(input.awayColor) : teamColor(store, event, text(input.away, 60)),
     stage,
+    ...(stageDetail ? { stageDetail } : {}),
     division: event === 'mens-pku-cup' && ['甲', '乙'].includes(input.division) ? input.division : null,
     status,
     note: text(input.note, 300),

@@ -2,6 +2,7 @@ import { recalculateMatchBonuses } from '../src/domain/time-bonuses.ts';
 import { recalculateMatchWeeks } from '../src/domain/weeks.ts';
 import { additionalAssistantRoles, usesAdditionalAssistants } from '../src/domain/scheduling.ts';
 import { randomUUID } from 'node:crypto';
+import { stageFor, normalizeStageDetail } from '../src/domain/stages.ts';
 import { parseWorkbook } from './xlsx.mjs';
 import { matchSemester, matchWeek } from '../src/domain/weeks.ts';
 import { normalizeColleges } from './validation.mjs';
@@ -90,19 +91,7 @@ function makeOfficial(store, role, rawName, channel, context) {
   return { role, refereeId: referee.id, name };
 }
 
-export function stageFor(group, channel = 'eleven') {
-  const label = group.replace(/\s/g, '');
-  if (/排位|排名赛|名次赛/.test(label)) return 'placement';
-  if (/半决赛|二分之一决赛|1[\/／]2决赛/.test(label)) return 'semifinal';
-  if (/季军|三四名/.test(label)) return channel === 'five' ? 'placement' : 'third';
-  // Quarter/eighth finals contain “决赛” but must not receive final bonuses.
-  if (/分之一|1[\/／]\d+|淘汰|十二进八|12进8/.test(label)) {
-    if (channel === 'five') throw new Error('女足北大杯阶段请明确填写常规赛、排位赛、半决赛或决赛');
-    return 'knockout';
-  }
-  if (label.includes('决赛')) return 'final';
-  return 'group';
-}
+export { stageFor } from '../src/domain/stages.ts';
 
 const fiveRoleHeaders = {
   first: ['一裁', '第一裁', '第一裁判', '1裁'],
@@ -120,6 +109,8 @@ function matchColumns(row) {
 }
 
 function rowSettings(match, sheet, rowNumber, columns, row, context) {
+  const stageText = columns.stage ? cellText(row, columns.stage) : match.group;
+  if (stageText && (match.stage !== 'group' || /小组赛|常规赛/.test(stageText))) match.stageDetail = normalizeStageDetail(stageText, match.stage, match.channel);
   const raw = columns.avoidance ? cellText(row, columns.avoidance) : '';
   const colleges = raw ? /^(无|无回避|无需回避|[-—–])$/.test(raw) ? [] : [...new Set(raw.normalize('NFKC').split(/[、,，;；\n\r/|]+/).map(v => v.trim()).filter(Boolean))] : undefined;
   if (colleges !== undefined) match.avoidanceOverride = { mode: 'replace', colleges };
@@ -294,6 +285,7 @@ function linkContinuation(store, original, parsed, season, decision, context) {
   }
   Object.assign(original, { interrupted: true, resumption: { date: parsed.date, time: parsed.time }, status: 'scheduled' });
   if (parsed.avoidanceOverride !== undefined) original.avoidanceOverride = parsed.avoidanceOverride;
+  if (parsed.stageDetail !== undefined && parsed.stage === original.stage) original.stageDetail = parsed.stageDetail;
   const issues = [...workloadIssues(original.officials), ...interruptionIssues(original)];
   if (issues.length) throw new Error(issues.join('；'));
 }
@@ -312,7 +304,7 @@ export function previewAssignmentWorkbook(store, buffer, season = '2026–27', s
       return { id: m.id, date: m.date, time: m.time, home: m.home, away: m.away, roles: continuationRoles(m, parsed),
         ...(uploaded ? { uploadedOriginal: { weekKey: weekKey(uploaded), roles: continuationRoles(projected, parsed) } } : {}) };
     }) : [];
-    return { ...metadata, weekKey: weekKey(parsed), date: parsed.date, time: parsed.time, home: parsed.home, away: parsed.away, stage: parsed.stage,
+    return { ...metadata, weekKey: weekKey(parsed), date: parsed.date, time: parsed.time, home: parsed.home, away: parsed.away, stage: parsed.stage, stageDetail: parsed.stageDetail,
       action: existing ? 'update' : 'add', existingId: existing?.id, colleges: parsed.avoidanceOverride?.colleges,
       unknownColleges: (parsed.avoidanceOverride?.colleges || []).filter(c => !(store.colleges || []).some(v => v.normalize('NFKC').toLocaleLowerCase() === c.toLocaleLowerCase())), candidates };
   });
@@ -387,6 +379,7 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
           officials.push(...(previous.length ? previous : [{ role, refereeId: null, name: '' }]));
         }
         const manual = {
+          ...((parsed.stageDetail ?? existing.stageDetail) !== undefined ? { stageDetail: parsed.stageDetail ?? existing.stageDetail } : {}),
           ...(existing.result !== undefined ? { result: existing.result } : {}),
           ...(existing.placementMode !== undefined ? { placementMode: existing.placementMode } : {}),
           ...((parsed.avoidanceOverride ?? existing.avoidanceOverride) !== undefined ? { avoidanceOverride: parsed.avoidanceOverride ?? existing.avoidanceOverride } : {}),

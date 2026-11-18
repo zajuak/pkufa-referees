@@ -1,4 +1,4 @@
-import { allowedStages } from '../src/domain/stages.ts';
+import { allowedStages, normalizeStageDetail } from '../src/domain/stages.ts';
 import { additionalAssistantRoles, usesAdditionalAssistants, requiredRoles } from '../src/domain/scheduling.ts';
 import { resolveMatchTeams } from '../src/domain/avoidance.ts';
 import { getMatchEvent } from '../src/domain/competitions.ts';
@@ -179,6 +179,7 @@ export function validateSnapshot(input) {
       validateCollegeBinding(m.avoidanceOverride.colleges, colleges, '本场回避学院格式不正确', 100);
     }
     if (!m.id || matchIds.has(m.id) || !date(m.date) || !['eleven', 'five'].includes(m.channel) || !['scheduled', 'completed', 'cancelled'].includes(m.status) || !Array.isArray(m.officials) || !Array.isArray(m.bonuses) || !finite(m.week) || !allowedStages(m.channel).includes(m.stage) || ['competition', 'time', 'venue', 'group', 'home', 'away', 'note'].some((k) => typeof m[k] !== 'string')) throw new Error('比赛记录格式有误');
+    if (normalizeStageDetail(m.stageDetail, m.stage, m.channel) !== m.stageDetail) throw new Error('阶段显示名称格式不正确');
     matchIds.add(m.id);
     if (m.additionalAssistants !== undefined && typeof m.additionalAssistants !== 'boolean') throw new Error('附加助理裁判设置不正确');
     if (m.additionalAssistants && m.channel !== 'eleven') throw new Error('仅十一人制可设置附加助理裁判');

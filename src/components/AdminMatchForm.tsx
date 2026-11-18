@@ -72,7 +72,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
   const update = <K extends keyof Match>(key: K, value: Match[K]) => setForm((current) => ({ ...current, [key]: value }));
   const changeChannel = (channel: Channel) => setForm((current) => {
     const event = channel === 'eleven' ? 'freshmen-cup' : 'womens-pku-cup';
-    return { ...current, channel, event, interrupted: false, resumption: undefined, competition: defaultCompetition(event), stage: allowedStages(channel).includes(current.stage) ? current.stage : 'group', additionalAssistants: false, home: '', away: '', homeColor: '', awayColor: '', result: undefined, placementMode: undefined, homeSource: undefined, awaySource: undefined, officials: current.status === 'cancelled' ? [] : requiredRoles(channel).map((role) => ({ role, refereeId: null, name: '' })) };
+    return { ...current, channel, event, interrupted: false, resumption: undefined, competition: defaultCompetition(event), stageDetail: undefined, stage: allowedStages(channel).includes(current.stage) ? current.stage : 'group', additionalAssistants: false, home: '', away: '', homeColor: '', awayColor: '', result: undefined, placementMode: undefined, homeSource: undefined, awaySource: undefined, officials: current.status === 'cancelled' ? [] : requiredRoles(channel).map((role) => ({ role, refereeId: null, name: '' })) };
   });
   const changeEvent = (event: CompetitionEvent) => setForm((current) => ({ ...current, event, division: event === 'mens-pku-cup' ? current.division : null, competition: defaultCompetition(event), home: '', away: '', homeColor: '', awayColor: '', result: undefined, homeSource: undefined, awaySource: undefined }));
   const changeStatus = (status: Match['status']) => setForm((current) => ({
@@ -83,7 +83,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
     officials: status === 'cancelled' ? [] : keepRoleOfficials(current.officials, matchRoles(current)),
   }));
   const changeStage = (stage: Match['stage']) => setForm((current) => ({
-    ...current, stage,
+    ...current, stage, stageDetail: undefined,
     placementMode: current.channel === 'eleven' && stage === 'placement' ? current.placementMode || 'grouped' : undefined,
     homeSource: current.channel === 'eleven' && ['knockout', 'semifinal', 'final', 'third'].includes(stage) ? current.homeSource : undefined,
     awaySource: current.channel === 'eleven' && ['knockout', 'semifinal', 'final', 'third'].includes(stage) ? current.awaySource : undefined,
@@ -182,6 +182,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
         <label>组别<input value={form.group} onChange={(event) => update('group', event.target.value)} /></label>
         <label>比赛阶段<select value={form.stage} onChange={(event) => changeStage(event.target.value as Match['stage'])}>{!allowedStages(form.channel).includes(form.stage) && <option value={form.stage} disabled>旧阶段：{stageLabel(form.stage)}（请选择新阶段）</option>}{stageOptions(form.channel).map((stage) => <option key={stage.value} value={stage.value}>{stage.label}</option>)}</select></label>
       </div>
+      <label>阶段显示名称（可选）<input aria-label="阶段显示名称" maxLength={60} value={form.stageDetail || ''} onChange={event => update('stageDetail', event.target.value)} placeholder="例如 1/4决赛、十二进八；留空显示默认名称" /></label>
       {form.channel === 'eleven' && form.stage === 'placement' && <label>排位赛模式<select aria-label="排位赛模式" value={form.placementMode || 'grouped'} onChange={(event) => update('placementMode', event.target.value as Match['placementMode'])}><option value="grouped">分组排位：回避同组全部球队</option><option value="single">单场排位：仅回避对阵双方</option></select></label>}
       {form.channel === 'eleven' && ['knockout', 'semifinal', 'final', 'third'].includes(form.stage) ? <fieldset className="advancement-fields"><legend>参赛球队与晋级来源</legend><p className="adjustment-help">直接选择球队，或从同赛事、同学期的比赛胜负者和小组名次自动晋级。未定球队会保留全部候选用于回避检查。</p>{(['home', 'away'] as const).map((side) => {
         const source = form[`${side}Source`];

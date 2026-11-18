@@ -112,7 +112,6 @@ export default function AssignmentsPage() {
           })}</tbody>
         </table>
       </section> : <EmptyState icon={<SearchX />} title={`${semesterLabel(semester)}没有符合条件的比赛`} description="试试切换学期、周次、赛制、赛事或场地筛选。" />}
-      <p className="data-footnote">数据更新至 {new Date(data!.updatedAt || data!.meta.importedAt).toLocaleDateString('zh-CN')} · 未选派的裁判岗位留空；回避学院按本场设置或分组及晋级关系汇总，“待设置”或“资料不全”表示尚不能完整判定。</p>
     </div>
   );
 }

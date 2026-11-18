@@ -67,6 +67,7 @@ export interface Match {
   homeColor?: string;
   awayColor?: string;
   stage: Stage;
+  stageDetail?: string;
   division: '甲' | '乙' | null;
   status: MatchStatus;
   note: string;
