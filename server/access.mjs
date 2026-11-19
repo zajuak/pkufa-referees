@@ -14,7 +14,7 @@ export function readableStore(store, auth) {
     matches: store.matches.map((m) => ({ ...Object.fromEntries(['id', 'season', 'week', 'channel', 'event', 'competition', 'date', 'time', 'venue', 'group', 'home', 'away', 'result', 'placementMode', 'homeSource', 'awaySource', 'homeColor', 'awayColor', 'stage', 'stageDetail', 'division', 'status', 'note', 'bonuses', 'officials', 'additionalAssistants', 'interrupted', 'resumption'].map((key) => [key, key === 'officials' ? m.officials.map((o) => Object.fromEntries(['role', 'refereeId', 'name', 'substitute', 'fraction', 'dutyDate', 'dutyTime', ...(financialQueries ? ['allocationPercent', 'actualBonus'] : [])].filter(key => o[key] !== undefined).map(key => [key, o[key]]))) : m[key]])), avoidanceSummary: matchAvoidanceSummary(m, store.matches, store.teams || [], store.groupOrders || []) })),
     teams: (store.teams || []).map((team) => ({ event: team.event, name: team.name, color: team.color })),
     referees,
-    adjustments: financialQueries ? store.adjustments.filter((a) => auth.publicQueries || a.refereeId === auth.refereeId) : [],
+    adjustments: financialQueries ? store.adjustments.filter((a) => !a.voidedAt && (auth.publicQueries || a.refereeId === auth.refereeId)).map(({ penalty, voidReason, ...a }) => a) : [],
     rules: store.rules, wageStandards: store.wageStandards,
     access: { role, ...(role === 'referee' ? { refereeId: auth.refereeId } : {}) },
   };

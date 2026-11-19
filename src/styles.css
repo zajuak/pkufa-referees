@@ -650,3 +650,54 @@ table { width: 100%; border-collapse: collapse; }
 
 @media(min-width:1101px){.assignment-table.with-additional{min-width:1320px}.assignment-table.with-additional .assignment-avoidance-cell{width:14%!important}.assignment-table.with-additional th:nth-last-child(2),.assignment-table.with-additional td:nth-last-child(2){width:9%!important}}
 @media(max-width:1100px){.assignment-table .assignment-avoidance-cell{grid-column:1/-1}.assignment-avoidance{max-width:70%;text-align:right}.assignment-table.with-additional{min-width:0}.assignment-table.with-additional td:nth-child(n),.assignment-table.with-additional th:nth-child(n){width:auto!important}}
+
+/* Match-linked disciplinary decisions. */
+.penalty-manager { font-size: 16px; line-height: 1.65; }
+.penalty-manager h2 { font-size: 22px; }
+.penalty-manager h3 { margin: 24px 0 12px; font-size: 18px; }
+.penalty-manager p { margin: 7px 0 12px; }
+.penalty-manager .button { font-size: 14px; }
+.penalty-manager label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.penalty-manager input, .penalty-manager select, .penalty-manager textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); font: inherit; }
+.penalty-manager input[readonly] { background: #f4f4f4; }
+.penalty-manager small, .penalty-manager .penalty-hint { color: var(--muted); font-size: 13px; }
+.penalty-selected-match, .penalty-record-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; }
+.penalty-selected-match { padding: 18px; background: var(--red-soft); border: 1px solid #ead5da; border-radius: 10px; }
+.penalty-selected-match p, .penalty-record-heading p { color: var(--muted); font-size: 14px; margin-bottom: 0; }
+.penalty-match-picker, .penalty-form, .penalty-quote, .penalty-record { padding: 20px; margin: 18px 0; border: 1px solid var(--line); border-radius: 10px; background: white; }
+.penalty-filters, .penalty-fields { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; margin: 14px 0; }
+.penalty-search { grid-column: span 2; }
+.penalty-manager .penalty-check { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; margin: 12px 0; }
+.penalty-manager .penalty-check input { width: auto; flex-shrink: 0; margin-top: 6px; }
+.penalty-match-results { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.penalty-match-option { display: flex; flex-direction: column; gap: 5px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: white; text-align: left; color: var(--ink); }
+.penalty-match-option:hover { border-color: var(--red); background: #fcf8f9; }
+.penalty-match-option span { font-size: 14px; }
+.penalty-pagination { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 10px; margin: 14px 0 0; font-size: 14px; }
+.penalty-subjects { display: flex; flex-wrap: wrap; gap: 10px; }
+.penalty-subjects button { display: flex; flex-direction: column; gap: 4px; padding: 10px 15px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); }
+.penalty-subjects button span { font-size: 14px; color: var(--muted); }
+.penalty-subjects button.active { border-color: var(--red); background: var(--red-soft); color: var(--red); }
+.penalty-rule, .penalty-qualification, .penalty-original, .penalty-restore { padding: 16px; margin: 15px 0; background: #f7f7f7; border-radius: 8px; }
+.penalty-rule a { color: var(--red); font-size: 14px; text-decoration: underline; }
+.penalty-summary-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; }
+.penalty-summary-grid > div { display: flex; flex-direction: column; gap: 5px; padding: 14px; background: var(--red-soft); border-radius: 8px; }
+.penalty-summary-grid span { font-size: 14px; }
+.penalty-summary-grid strong { font-size: 22px; }
+.penalty-breakdown { margin: 18px 0; }
+.penalty-breakdown > div { display: flex; justify-content: space-between; gap: 15px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.penalty-breakdown dd { margin: 0; }
+.penalty-sanctions { padding: 8px 0; }
+.penalty-record.voided { background: #f5f5f5; }
+.penalty-record details { margin: 12px 0; font-size: 14px; }
+.penalty-record summary { cursor: pointer; color: var(--red); }
+.penalty-record-heading > span { flex-shrink: 0; color: var(--red); }
+.penalty-manager .form-error, .penalty-manager .form-message { font-size: 14px; }
+@media(max-width:760px) {
+  .penalty-filters, .penalty-fields, .penalty-summary-grid, .penalty-match-results { grid-template-columns: 1fr; }
+  .penalty-search { grid-column: auto; }
+  .penalty-selected-match, .penalty-record-heading { flex-direction: column; gap: 10px; }
+  .penalty-match-picker, .penalty-form, .penalty-quote, .penalty-record { padding: 15px; }
+  .penalty-breakdown > div { flex-wrap: wrap; }
+}
+.penalty-manager select { appearance: none; padding-right: 34px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%236f6569' stroke-width='1.5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; }

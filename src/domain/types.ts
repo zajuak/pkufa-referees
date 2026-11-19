@@ -95,6 +95,61 @@ export interface Adjustment {
   points: number;
   wage: number;
   reason: string;
+  penalty?: PenaltyRecord;
+  voidedAt?: string;
+  voidReason?: string;
+  crossChannelPoints?: { channel: Channel; points: number };
+}
+
+export type Qualification = 'elevenReferee' | 'elevenAssistant' | 'fiveReferee' | 'fourthOfficial';
+export interface PenaltyInput {
+  matchId: string;
+  refereeId: string;
+  ruleCode: string;
+  reason: string;
+  role?: Role;
+  originalAssignmentConfirmed?: boolean;
+  dutySession?: 'original' | 'resumption';
+  matchPointsPercent?: number;
+  cumulativePercent?: number;
+  wagePercent?: number;
+  extraPoints?: number;
+  suspensionWeeks?: number;
+  repeat?: boolean;
+  repeatPoints?: number;
+  repeatWeeks?: number;
+  mitigated?: boolean;
+  mitigationReason?: string;
+  effectiveDate?: string;
+  qualifications?: Qualification[];
+  qualificationYears?: number;
+  schoolNotice?: boolean;
+  internalNotice?: boolean;
+}
+export interface PenaltyRecord {
+  ruleCode: string;
+  title: string;
+  clause: string;
+  ruleText: string;
+  rulesVersion: string;
+  decision: PenaltyInput;
+  basis: {
+    date: string; time: string; role: Role; originalAssignment: boolean;
+    matchPoints: number; baseWage: number; bonusWage: number; totalWage: number;
+    beforePoints: number; otherChannelBeforePoints: number;
+    availableMatchPoints: number; availableWage: number; availableBeforePoints: number;
+  };
+  deductions: { matchPoints: number; cumulativePoints: number; extraPoints: number; wage: number };
+  warning: boolean;
+  notice: boolean;
+  schoolNotice: boolean;
+  sanctions: {
+    start: string;
+    suspensionEnd?: string;
+    qualifications: Qualification[];
+    reapplyAfter?: string;
+    reinstatements?: Partial<Record<Qualification, { date: string; reason: string }>>;
+  };
 }
 
 export type RuleBlock =

@@ -50,14 +50,9 @@ describe('奖惩必须关联具体比赛', () => {
     expect((await (await f.call('GET', '/api/data', undefined, false)).json()).adjustments[0].matchId).toBe('m1');
   });
 
-  it.each(['first', 'second', 'third'] as const)('女足的%s裁判可以按本场比赛登记奖励', async (role) => {
-    const f = fixture();
-    Object.assign(f.data.matches[0], { channel: 'five', event: 'womens-pku-cup', competition: '女足北大杯', officials: [{ role, refereeId: 'r1', name: '测试裁判甲' }] });
-    const response = await f.call('POST', '/api/adjustments', { ...input, type: 'reward', points: 2, wage: 10 });
-    expect(response.status).toBe(201);
-    expect(f.data.adjustments[0]).toMatchObject({ matchId: 'm1', channel: 'five', event: 'womens-pku-cup', points: 2, wage: 10 });
-    expect(getSeasonWage(f.data.referees[0], 'five', season, f.data.matches, f.data.adjustments)!.adjustmentWage).toBe(10);
-    expect(getSeasonWage(f.data.referees[0], 'eleven', season, f.data.matches, f.data.adjustments)!.adjustmentWage).toBe(0);
+  it.each(['first', 'second', 'third'] as const)('女足的%s裁判不再通过手工入口登记奖励', async role => {
+    const f=fixture(); Object.assign(f.data.matches[0],{channel:'five',event:'womens-pku-cup',competition:'女足北大杯',officials:[{role,refereeId:'r1',name:'测试裁判甲'}]});
+    expect((await f.call('POST','/api/adjustments',{...input,type:'reward',points:2,wage:10})).status).toBe(400);expect(f.writes).toBe(0);
   });
 
   it('附加助理也属于该场裁判，可登记扣罚', async () => {

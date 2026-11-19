@@ -1,8 +1,9 @@
-import type { Channel, Level, Match, MatchStatus, Official, OfficialCalculation, Referee, Adjustment, WageStandards } from './types';
-import { automaticTimeBonuses, matchBonuses, timeBonusLabels } from './time-bonuses';
-import { stageLabel } from './stages';
-import { isAssistantRole, matchInterval } from './scheduling';
-import { competitionEvents, getMatchEvent } from './competitions';
+import { financialAdjustments } from './financial-adjustments.ts';
+import type { Channel, Level, Match, MatchStatus, Official, OfficialCalculation, Referee, Adjustment, WageStandards } from './types.ts';
+import { automaticTimeBonuses, matchBonuses, timeBonusLabels } from './time-bonuses.ts';
+import { stageLabel } from './stages.ts';
+import { isAssistantRole, matchInterval } from './scheduling.ts';
+import { competitionEvents, getMatchEvent } from './competitions.ts';
 import { officialDuty, officialFraction, officialAllocationFraction } from './workload.ts';
 
 export const CURRENT_SEASON = '2026–27';
@@ -102,7 +103,7 @@ export function getChannelSummary(referee: Referee, channel: Channel, matches: M
   const contributions = completed.flatMap((match) => match.officials
     .filter((official) => official.refereeId === referee.id && effectiveMatchStatus(officialDuty(match, official)) === 'completed')
     .map((official) => { const duty = officialDuty(match, official); return { match: duty, official, ...calculateOfficial(duty, official, stats.baseLevel, wageStandards) }; }));
-  const ownAdjustments = adjustments.filter((item) => item.refereeId === referee.id && item.channel === channel && (!item.event || competitionEvents.some((config) => config.id === item.event)));
+  const ownAdjustments = financialAdjustments(adjustments).filter((item) => item.refereeId === referee.id && item.channel === channel && (!item.event || competitionEvents.some((config) => config.id === item.event)));
   const matchPoints = contributions.reduce((sum, item) => sum + item.points, 0);
   const adjustmentPoints = ownAdjustments.reduce((sum, item) => sum + item.points, 0);
   const points = Math.max(0, stats.basePoints + matchPoints + adjustmentPoints);

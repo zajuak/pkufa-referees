@@ -1,3 +1,4 @@
+import { validateSavedPenalty } from '../src/domain/penalties.ts';
 import { allowedStages, normalizeStageDetail } from '../src/domain/stages.ts';
 import { additionalAssistantRoles, usesAdditionalAssistants, requiredRoles } from '../src/domain/scheduling.ts';
 import { resolveMatchTeams } from '../src/domain/avoidance.ts';
@@ -201,6 +202,7 @@ export function validateSnapshot(input) {
   for (const match of value.matches) validateMatchAvoidance(match, value.matches, value.groupOrders || []);
   const adjustmentIds = new Set();
   for (const a of value.adjustments) {
+    validateSavedPenalty(a);
     if (!a.id || adjustmentIds.has(a.id) || !value.referees.some((r) => r.id === a.refereeId && r.channels[a.channel]) || !finite(a.points) || !finite(a.wage) || !date(a.date) || !['reward', 'penalty'].includes(a.type) || typeof a.reason !== 'string' || typeof a.season !== 'string') throw new Error('奖惩记录格式有误');
     if (a.matchId !== undefined) {
       const match = value.matches.find((item) => item.id === a.matchId);

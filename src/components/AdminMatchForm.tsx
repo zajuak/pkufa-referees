@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { penaltyEligibilityIssues, recentPenalty } from '../domain/penalty-eligibility';
+import { useRef, useState } from 'react';
 import { Save, Trash2, X } from 'lucide-react';
 import { api, useData } from '../hooks/useData';
 import { availableSeasons, CURRENT_SEASON, roleName } from '../domain/calculations';
@@ -9,7 +10,7 @@ import { automaticTimeBonuses, matchBonuses, timeBonusKinds, timeBonusLabels } f
 import { allowedStages, stageOptions, stageLabel } from '../domain/stages';
 import { matchWeek } from '../domain/weeks';
 import { eventTeams, teamColor } from '../domain/teams';
-import { interruptionIssues, interruptionSettings, resumptionReady } from '../domain/workload';
+import { interruptionIssues, interruptionSettings, resumptionReady, officialDuty } from '../domain/workload';
 import { normalizeRefereeName, refereeNameKey } from '../domain/referees';
 import type { Channel, CompetitionEvent, Match, MatchTeamSource, Official, Role } from '../domain/types';
 
@@ -24,7 +25,7 @@ function keepRoleOfficials(officials: Official[], roles: Role[]): Official[] {
   return roles.flatMap((role) => { const existing = officials.filter((o) => o.role === role); return existing.length ? existing : [{ role, refereeId: null, name: '' }]; });
 }
 
-export default function AdminMatchForm({ match, onClose }: { match: Match | null; onClose: () => void }) {
+export default function AdminMatchForm({ match, onClose, onPenalty }: { match: Match | null; onClose: () => void; onPenalty?: () => void }) {
   const { data, refresh } = useData();
   const [form, setForm] = useState<Match>(() => {
     if (!match) return emptyMatch();
@@ -36,6 +37,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
       officials: match.status === 'cancelled' ? [] : keepRoleOfficials(match.officials, matchRoles(match)),
     };
   });
+  const initialForm = useRef(JSON.stringify(form));
   const [saving, setSaving] = useState(false);
   const [officialQueries, setOfficialQueries] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
@@ -54,7 +56,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
     : [...data!.matches, analysisMatch], data!.groupOrders || []);
   const resolvedMatch = prospectiveMatches.find((item) => item === analysisMatch || (item.id && item.id === form.id)) || analysisMatch;
   const analysis = assignmentAnalysis(resolvedMatch, prospectiveMatches, data!.unavailability, {
-    referees: data!.referees, teams: data!.teams || [], groupOrders: data!.groupOrders || [],
+    adjustments: data!.adjustments, referees: data!.referees, teams: data!.teams || [], groupOrders: data!.groupOrders || [],
   });
   const scoreErrors: string[] = [];
   if (form.result) {
@@ -231,7 +233,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
         const eligibleReferees = data!.referees
           .filter((referee) => referee.channels[form.channel])
           .filter((referee) => referee.id === official.refereeId || refereeNameKey(referee.name).includes(query))
-          .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+          .sort((a, b) => Number(recentPenalty(a.id, officialDuty(form, official).date, data!.adjustments))-Number(recentPenalty(b.id, officialDuty(form, official).date, data!.adjustments)) || a.name.localeCompare(b.name, 'zh-CN'));
         return <div className="official-input" key={`${official.role}-${index}`}>
           <span>{roleLabel}</span>
           <div className="official-picker">
@@ -241,7 +243,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
               const newName = !selected && event.target.value.startsWith('new:') ? event.target.value.slice(4) : '';
               const refereeId = newName ? null : event.target.value || null;
               setForm((current) => ({ ...current, officials: current.officials.map((item, i) => i === index ? { ...item, refereeId, name: selected?.name || newName } : item) }));
-            }}><option value="">待选派</option>{eligibleReferees.map((referee) => <option key={referee.id} value={referee.id}>{referee.name}</option>)}{pendingNames.map((name) => <option key={`new:${name}`} value={`new:${name}`}>{data!.referees.some((referee) => refereeNameKey(referee.name) === refereeNameKey(name)) ? '选派并补齐档案' : '新建并选派'}：{name}</option>)}{!eligibleReferees.length && !pendingNames.length && <option disabled>没有匹配的裁判员</option>}</select>
+            }}><option value="">待选派</option>{eligibleReferees.map(referee => { const restricted = penaltyEligibilityIssues(referee.id, official.role, officialDuty(form, official).date, data!.adjustments).length > 0; return <option key={referee.id} value={referee.id} disabled={restricted && referee.id !== official.refereeId}>{referee.name}{restricted ? ' · 停哨／资格限制' : recentPenalty(referee.id, officialDuty(form, official).date, data!.adjustments) ? ' · 近期受处罚' : ''}</option>; })}{pendingNames.map((name) => <option key={`new:${name}`} value={`new:${name}`}>{data!.referees.some((referee) => refereeNameKey(referee.name) === refereeNameKey(name)) ? '选派并补齐档案' : '新建并选派'}：{name}</option>)}{!eligibleReferees.length && !pendingNames.length && <option disabled>没有匹配的裁判员</option>}</select>
           </div>
           {!paired && (official.refereeId || official.name) && <label className="substitute-check"><input type="checkbox" checked={official.substitute || false} onChange={(event) => setForm((current) => ({ ...current, officials: current.officials.map((item, i) => i === index ? { ...item, substitute: event.target.checked } : item) }))} />临时替补 +10 元</label>}
           {firstForRole && canResume && <label className="substitute-check"><input type="checkbox" aria-label={`${baseRoleLabel}续赛换裁`} checked={paired} onChange={(event) => toggleContinuation(official.role, event.target.checked)} />中断后续赛更换裁判</label>}
@@ -260,7 +262,7 @@ export default function AdminMatchForm({ match, onClose }: { match: Match | null
       <label>备注<textarea rows={2} value={form.note} onChange={(event) => update('note', event.target.value)} /></label>
       {warnings.length > 0 && <div className="form-warning" role="status"><strong>回避资料提醒（不阻止保存）</strong>{warnings.map((warning) => <p key={warning}>{warning}</p>)}</div>}
       {issues.length > 0 && <div className="form-error" role="alert"><strong>请先处理赛果或选派冲突</strong>{issues.map((issue) => <p key={issue}>{issue}</p>)}</div>}{error && <p className="form-error" role="alert">{error}</p>}
-      <div className="form-actions">{form.id && <button type="button" className="button danger-ghost" onClick={() => void remove()}><Trash2 size={16} />删除</button>}<button type="button" className="button secondary" onClick={onClose}>取消</button><button className="button primary" disabled={saving || issues.length > 0}><Save size={16} />{saving ? '保存中…' : '保存比赛'}</button></div>
+      <div className="form-actions">{form.id && onPenalty && <button type="button" className="button secondary" onClick={()=>{if(JSON.stringify(form)!==initialForm.current&&!window.confirm('当前修改尚未保存，是否放弃并为已保存赛程登记处罚？'))return;onPenalty();}}>登记处罚</button>}{form.id && <button type="button" className="button danger-ghost" onClick={() => void remove()}><Trash2 size={16} />删除</button>}<button type="button" className="button secondary" onClick={onClose}>取消</button><button className="button primary" disabled={saving || issues.length > 0}><Save size={16} />{saving ? '保存中…' : '保存比赛'}</button></div>
     </form>
   );
 }

@@ -10,7 +10,7 @@ export default function OverviewPage() {
   const { data, refresh } = useData();
   const matches = data!.matches.filter((m) => (m.season || data!.meta.season) === data!.meta.season);
   const upcoming = matches.filter((m) => effectiveMatchStatus(m) === 'scheduled').sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
-  const context = { referees: data!.referees, teams: data!.teams || [], groupOrders: data!.groupOrders || [] };
+  const context = { adjustments: data!.adjustments, referees: data!.referees, teams: data!.teams || [], groupOrders: data!.groupOrders || [] };
   const conflicts = matches.flatMap((m) => assignmentIssues(m, data!.matches, data!.unavailability, context).map((issue) => ({ match: m, issue })));
   const warnings = matches.flatMap((m) => assignmentWarnings(m, data!.matches, data!.unavailability, context).map((warning) => ({ match: m, warning })));
   const vacancies = matches.filter((m) => vacantRoles(m).length);

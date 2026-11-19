@@ -2,9 +2,9 @@ import { formatPoints } from '../domain/calculations';
 import { useEffect, useState, type FormEvent } from 'react';
 import { BookOpen, CalendarPlus, CheckCircle2, Download, KeyRound, ListOrdered, LogOut, Plus, RotateCcw, Save, Settings2, ShieldCheck, Trash2, UserPlus, UsersRound, WalletCards } from 'lucide-react';
 import { api, useData } from '../hooks/useData';
-import { channelName, defaultWageStandards, effectiveMatchStatus, formatDate, formatMoney, getChannelSummary, getUpgradeRecommendation } from '../domain/calculations';
-import { eventName, getMatchEvent } from '../domain/competitions';
-import type { Adjustment, Channel, CompetitionEvent, Level, Match, RuleBlock, RulesData, WageStandards } from '../domain/types';
+import { channelName, defaultWageStandards, effectiveMatchStatus, formatDate, getChannelSummary, getUpgradeRecommendation } from '../domain/calculations';
+import { eventName } from '../domain/competitions';
+import type { Channel, CompetitionEvent, Level, Match, RuleBlock, RulesData, WageStandards } from '../domain/types';
 import { ChannelBadge, PageHeader, StatusBadge } from '../components/ui';
 import AdminMatchForm from '../components/AdminMatchForm';
 import TeamManager from '../components/TeamManager';
@@ -12,6 +12,7 @@ import AvoidanceManager from '../components/AvoidanceManager';
 import TournamentManager from '../components/TournamentManager';
 import OverviewPage from './OverviewPage';
 import OperationsManager from '../components/OperationsManager';
+import PenaltyManager from '../components/PenaltyManager';
 import AssignmentUpload from '../components/AssignmentUpload';
 import { defaultRules } from './RulesPage';
 import { downloadSeasonWorkbook } from '../domain/season-export';
@@ -35,7 +36,7 @@ export default function AdminPage() {
 
   return (
     <div className="page admin-page">
-      <PageHeader eyebrow="ADMIN CONSOLE" title="管理后台" description="维护赛程与裁判选派，登记奖惩，自动更新积分和工资表。" actions={authenticated ? <button className="button secondary" onClick={() => void logout()}><LogOut size={16} />退出登录</button> : <span className="season-pill"><ShieldCheck size={16} />管理员专用</span>} />
+      <PageHeader eyebrow="ADMIN CONSOLE" title="管理后台" description="维护赛程与裁判选派，登记处罚，自动更新积分和工资表。" actions={authenticated ? <button className="button secondary" onClick={() => void logout()}><LogOut size={16} />退出登录</button> : <span className="season-pill"><ShieldCheck size={16} />管理员专用</span>} />
       {checking ? <div className="panel admin-loading">正在检查登录状态…</div> : authenticated ? <AdminWorkspace /> : (
         <div className="login-layout">
           <section className="panel login-intro"><span className="login-icon"><Settings2 size={28} /></span><p className="eyebrow">SECURE WORKSPACE</p><h2>裁判部工作入口</h2><p>在这里发布每周赛程、调整裁判岗位，并在比赛完成后一键生成工资与积分明细。</p><ul><li><CheckCircle2 size={17} />服务端持久化保存</li><li><CheckCircle2 size={17} />五人制与十一人制独立核算</li><li><CheckCircle2 size={17} />按赛季归档工资记录</li></ul></section>
@@ -49,17 +50,18 @@ export default function AdminPage() {
 function AdminWorkspace() {
   const { data } = useData();
   const [tab, setTab] = useState<'matches' | 'adjustments' | 'wages' | 'referees' | 'rules' | 'operations' | 'overview' | 'teams' | 'tournament'>('matches');
+  const [penaltyMatchId, setPenaltyMatchId] = useState('');
   const [exportError, setExportError] = useState('');
   const exportWorkbook = () => { setExportError(''); try { downloadSeasonWorkbook(data!); } catch (error) { setExportError(error instanceof Error ? error.message : '导出失败'); } };
   const completed = data!.matches.filter((match) => effectiveMatchStatus(match) === 'completed').length;
   return (
     <>
-      <div className="admin-summary"><span><strong>{data!.matches.length}</strong> 场赛程</span><span><strong>{completed}</strong> 场已结算</span><span><strong>{data!.adjustments.length}</strong> 条奖惩</span><p>保存后，前台积分与工资会自动重算。</p><button className="button secondary season-export-button" onClick={exportWorkbook}><Download size={16} />导出当前赛季积分工资表</button></div>
+      <div className="admin-summary"><span><strong>{data!.matches.length}</strong> 场赛程</span><span><strong>{completed}</strong> 场已结算</span><span><strong>{data!.adjustments.filter(a=>a.type==='penalty'&&!a.voidedAt).length}</strong> 条处罚／事件</span><p>保存后，前台积分与工资会自动重算。</p><button className="button secondary season-export-button" onClick={exportWorkbook}><Download size={16} />导出当前赛季积分工资表</button></div>
       {exportError && <p className="form-error" role="alert">{exportError}</p>}
-      <div className="admin-tabs" role="group" aria-label="后台管理功能"><button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}><ShieldCheck size={18} />工作总览</button><button className={tab === 'matches' ? 'active' : ''} onClick={() => setTab('matches')}><CalendarPlus size={18} />赛程与选派</button><button className={tab === 'tournament' ? 'active' : ''} onClick={() => setTab('tournament')}><ListOrdered size={18} />积分榜与晋级</button><button className={tab === 'adjustments' ? 'active' : ''} onClick={() => setTab('adjustments')}><Settings2 size={18} />奖惩登记</button><button className={tab === 'wages' ? 'active' : ''} onClick={() => setTab('wages')}><WalletCards size={18} />工资修改</button><button className={tab === 'referees' ? 'active' : ''} onClick={() => setTab('referees')}><UsersRound size={18} />裁判员档案</button><button className={tab === 'rules' ? 'active' : ''} onClick={() => setTab('rules')}><BookOpen size={18} />管理办法</button><button className={tab === 'operations' ? 'active' : ''} onClick={() => setTab('operations')}><ShieldCheck size={18} />请假与备份</button><button className={tab === 'teams' ? 'active' : ''} onClick={() => setTab('teams')}><UsersRound size={18} />球队与球衣</button></div>
-      {tab === 'matches' && <MatchManager />}
+      <div className="admin-tabs" role="group" aria-label="后台管理功能"><button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}><ShieldCheck size={18} />工作总览</button><button className={tab === 'matches' ? 'active' : ''} onClick={() => setTab('matches')}><CalendarPlus size={18} />赛程与选派</button><button className={tab === 'tournament' ? 'active' : ''} onClick={() => setTab('tournament')}><ListOrdered size={18} />积分榜与晋级</button><button className={tab === 'adjustments' ? 'active' : ''} onClick={() => setTab('adjustments')}><Settings2 size={18} />处罚登记</button><button className={tab === 'wages' ? 'active' : ''} onClick={() => setTab('wages')}><WalletCards size={18} />工资修改</button><button className={tab === 'referees' ? 'active' : ''} onClick={() => setTab('referees')}><UsersRound size={18} />裁判员档案</button><button className={tab === 'rules' ? 'active' : ''} onClick={() => setTab('rules')}><BookOpen size={18} />管理办法</button><button className={tab === 'operations' ? 'active' : ''} onClick={() => setTab('operations')}><ShieldCheck size={18} />请假与备份</button><button className={tab === 'teams' ? 'active' : ''} onClick={() => setTab('teams')}><UsersRound size={18} />球队与球衣</button></div>
+      {tab === 'matches' && <MatchManager onPenalty={match=>{setPenaltyMatchId(match.id);setTab('adjustments');}} />}
       {tab === 'tournament' && <TournamentManager />}
-      {tab === 'adjustments' && <AdjustmentManager />}
+      {tab === 'adjustments' && <PenaltyManager key={penaltyMatchId} initialMatchId={penaltyMatchId} />}
       {tab === 'wages' && <WageManager />}
       {tab === 'referees' && <RefereeWorkspace />}
       {tab === 'rules' && <RulesManager />}
@@ -70,7 +72,7 @@ function AdminWorkspace() {
   );
 }
 
-function MatchManager() {
+function MatchManager({ onPenalty }: { onPenalty: (match: Match) => void }) {
   const { data } = useData();
   const [editing, setEditing] = useState<Match | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -81,67 +83,13 @@ function MatchManager() {
     <section className="admin-section">
       <div className="admin-section-heading"><div><h2>比赛管理</h2><p>新增赛程、调整岗位；比赛结束后自动完成并计入工资和积分。</p></div><div className="admin-heading-actions"><AssignmentUpload /><button className="button primary" onClick={() => open(null)}><Plus size={17} />新增赛程</button></div></div>
       <p className="upload-hint">组别可省略整列或留空，更新时保留已有组别；比赛阶段可填写在“比赛类别”列。五人制支持“一裁、二裁、三裁”或“第一裁判、第二裁判、第三裁判”三列，兼容旧“主裁／副裁”表。上传后先选择需要更新的周次并确认；“回避”列可导入本场名单，备注“接续比赛”需确认关联原场。</p>
-      {formOpen && <AdminMatchForm key={editing?.id || 'new'} match={editing} onClose={() => setFormOpen(false)} />}
+      {formOpen && <AdminMatchForm key={editing?.id || 'new'} match={editing} onClose={() => setFormOpen(false)} onPenalty={editing ? () => onPenalty(editing) : undefined} />}
       <div className="admin-list-tools"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索赛事、球队或裁判员" aria-label="搜索比赛" /><span>{matches.length} 场</span></div>
       <div className="admin-match-list">{matches.map((match) => <button className="admin-match-row" key={match.id} onClick={() => open(match)}><span className="admin-match-date"><strong>{formatDate(match.date)}</strong><small>第 {match.week} 周 · {match.time}</small>{match.resumption && <small>接续：{match.resumption.date} {match.resumption.time}</small>}</span><span className="admin-match-title"><strong>{match.home || match.group}{match.home && match.away ? ' vs ' : ''}{match.away}</strong><small>{match.competition} · {channelName(match.channel)} · {match.venue}</small></span><span className="admin-match-officials">{match.status === 'cancelled' ? '无需选派' : `${match.officials.filter((item) => item.name).length}/${match.officials.length} 已选派`}</span><StatusBadge status={effectiveMatchStatus(match)} /><span className="edit-text">编辑</span></button>)}</div>
     </section>
   );
 }
 
-function AdjustmentManager() {
-  const { data, refresh } = useData();
-  const [matchId, setMatchId] = useState('');
-  const [refereeId, setRefereeId] = useState('');
-  const [type, setType] = useState<'reward' | 'penalty'>('penalty');
-  const [points, setPoints] = useState(0);
-  const [wage, setWage] = useState(0);
-  const [reason, setReason] = useState('');
-  const [message, setMessage] = useState('');
-  const matches = data!.matches.filter((item) => getMatchEvent(item)).sort((a, b) => b.date.localeCompare(a.date) || a.time.localeCompare(b.time));
-  const match = matches.find((item) => item.id === matchId);
-  const assigned = data!.referees.filter((person) => match?.officials.some((official) => official.refereeId === person.id) && person.channels[match.channel]).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
-  const validReferee = assigned.some((person) => person.id === refereeId);
-  const matchLabel = (item: Match) => `${formatDate(item.date, true)} ${item.time} · ${item.home && item.away ? `${item.home}—${item.away}` : item.group || item.competition}`;
-  const submit = async (formEvent: FormEvent) => {
-    formEvent.preventDefault(); setMessage('');
-    if (!match || !validReferee) { setMessage('请选择关联比赛及该场已选派的裁判员。'); return; }
-    if (!points && !wage) { setMessage('请至少填写一项积分或工资变动。'); return; }
-    try {
-      await api('/api/adjustments', { method: 'POST', body: JSON.stringify({ matchId, refereeId, type, points, wage, reason }) });
-      await refresh(); setReason(''); setPoints(0); setWage(0); setMessage('奖惩已登记，积分与工资表已更新。');
-    } catch (error) { setMessage(error instanceof Error ? error.message : '保存失败'); }
-  };
-  const remove = async (item: Adjustment) => {
-    if (!window.confirm(`确定删除“${item.reason}”这条奖惩记录？`)) return;
-    await api(`/api/adjustments/${item.id}`, { method: 'DELETE' }); await refresh();
-  };
-  return (
-    <section className="admin-section">
-      <div className="admin-section-heading"><div><h2>奖惩登记</h2><p>先选择关联比赛，再为该场已选派的裁判员登记奖励或处罚。</p></div></div>
-      <form className="admin-form horizontal-form" onSubmit={(event) => void submit(event)}>
-        <div className="form-grid three-cols">
-          <label className="span-two">关联比赛<select required value={matchId} onChange={(event) => { setMatchId(event.target.value); setRefereeId(''); setMessage(''); }}><option value="">请选择比赛</option>{matches.map((item) => <option key={item.id} value={item.id}>{matchLabel(item)} · {eventName(getMatchEvent(item)!)}</option>)}</select></label>
-          <label>裁判员<select required disabled={!match} value={validReferee ? refereeId : ''} onChange={(event) => setRefereeId(event.target.value)}><option value="">{match ? '请选择该场裁判员' : '请先选择比赛'}</option>{assigned.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label>赛事与赛制<input readOnly value={match ? `${eventName(getMatchEvent(match)!)} · ${channelName(match.channel)}` : ''} /></label>
-          <label>赛季<input readOnly value={match ? match.season || data!.meta.season : ''} /></label>
-          <label>比赛日期<input type="date" readOnly value={match?.date || ''} /></label>
-          <label>类型<select value={type} onChange={(event) => setType(event.target.value as 'reward' | 'penalty')}><option value="reward">奖励</option><option value="penalty">处罚</option></select></label>
-          <label>{type === 'penalty' ? '扣除积分' : '奖励积分'}<input type="number" min="0" step="0.1" value={points} onChange={(event) => setPoints(Number(event.target.value))} /></label>
-          <label>{type === 'penalty' ? '扣除工资（元）' : '奖励工资（元）'}<input type="number" min="0" step="0.5" value={wage} onChange={(event) => setWage(Number(event.target.value))} /></label>
-          <label className="span-two">奖惩事由<input required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="填写该场比赛中发生的具体事由" /></label>
-        </div>
-        {match && !assigned.length && <p className="adjustment-help">该场尚未选派裁判员，请先在“赛程与选派”中完成选派。</p>}
-        <p className="adjustment-help">奖惩自动计入关联比赛的赛季、赛事和赛制。{type === 'penalty' ? '处罚填写正数，保存后自动记为负积分、负工资。' : '奖励填写正数，保存后自动加入积分和工资。'}</p>
-        {message && <p className="form-message">{message}</p>}<div className="form-actions"><button className="button primary" disabled={!match || !validReferee}><Plus size={16} />登记并自动核算</button></div>
-      </form>
-      <div className="admin-adjustments"><h3>已登记记录 <span>{data!.adjustments.length}</span></h3>{data!.adjustments.length ? [...data!.adjustments].reverse().map((item) => {
-        const person = data!.referees.find((referee) => referee.id === item.refereeId);
-        const relatedMatch = data!.matches.find((game) => game.id === item.matchId);
-        return <div className="adjustment-row" key={item.id}><span className={`adjustment-type ${item.type}`}>{item.type === 'reward' ? '奖' : '惩'}</span><div><strong>{person?.name} · {item.reason}</strong><small>{item.season} · {channelName(item.channel)} · {item.event ? eventName(item.event) : '未归赛事'} · {relatedMatch ? matchLabel(relatedMatch) : '历史记录 · 未关联比赛'}</small></div><span>{item.points >= 0 ? '+' : ''}{item.points} 分</span><strong>{item.wage >= 0 ? '+' : ''}{formatMoney(item.wage)}</strong><button className="icon-button danger-text" onClick={() => void remove(item)} aria-label="删除奖惩"><Trash2 size={16} /></button></div>;
-      }) : <p className="inline-empty">暂无奖惩记录</p>}</div>
-    </section>
-  );
-}
 
 function WageManager() {
   const { data, refresh } = useData();

@@ -1,3 +1,4 @@
+import { quotePenalty, validateSavedPenalty, validPenaltyDate, beijingToday } from '../src/domain/penalties.ts';
 import { recalculateMatchBonuses } from '../src/domain/time-bonuses.ts';
 import { allowedStages, normalizeStageDetail } from '../src/domain/stages.ts';
 import { recalculateMatchWeeks } from '../src/domain/weeks.ts';
@@ -73,7 +74,7 @@ function updateMatchCounts() {
 }
 
 function assignmentContext(groupOrders = store.groupOrders || []) {
-  return { referees: store.referees, teams: store.teams || [], groupOrders };
+  return { adjustments: store.adjustments, referees: store.referees, teams: store.teams || [], groupOrders };
 }
 
 function advanceChangedMatches(proposed, previous, fullIds = []) {
@@ -532,8 +533,44 @@ app.put('/api/referees/:id/level', requireAdmin, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.post('/api/penalties/preview', requireAdmin, (req, res, next) => {
+  try { res.json({ revision: before.revision || 0, ...quotePenalty(store, req.body) }); }
+  catch (error) { next(error); }
+});
+app.post('/api/penalties', requireAdmin, async (req, res, next) => {
+  try {
+    const quote = quotePenalty(store, req.body);
+    const match = store.matches.find(m => m.id === req.body.matchId);
+    const adjustment = { id: `adjustment-${randomUUID()}`, matchId: match.id, refereeId: req.body.refereeId, channel: match.channel, season: match.season || store.meta.season, event: getMatchEvent(match), date: match.date, type: 'penalty', reason: quote.penalty.decision.reason, ...quote };
+    validateSavedPenalty(adjustment);
+    store.adjustments.push(adjustment); await persist(); res.status(201).json(adjustment);
+  } catch (error) { next(error); }
+});
+app.post('/api/penalties/:id/revoke', requireAdmin, async (req, res, next) => {
+  try {
+    const item = store.adjustments.find(a => a.id === req.params.id && a.penalty);
+    if (!item || item.voidedAt) throw new Error('未找到有效处罚记录');
+    const reason = text(req.body?.reason, 500); if (!reason) throw new Error('请填写撤销原因');
+    item.voidedAt = new Date().toISOString(); item.voidReason = reason;
+    await persist(); res.json(item);
+  } catch (error) { next(error); }
+});
+app.post('/api/penalties/:id/reinstate', requireAdmin, async (req, res, next) => {
+  try {
+    const item = store.adjustments.find(a => a.id === req.params.id && a.penalty && !a.voidedAt);
+    if (!item) throw new Error('未找到有效处罚记录');
+    const { date, reason, qualifications } = req.body || {}, sanctions = item.penalty.sanctions;
+    if (!validPenaltyDate(date) || date > beijingToday() || date < (sanctions.reapplyAfter || sanctions.start) || !text(reason, 500)) throw new Error('须达到允许重新考核日期，并填写考核通过日期和依据');
+    if (!Array.isArray(qualifications) || !qualifications.length || qualifications.some(q => !sanctions.qualifications.includes(q))) throw new Error('请选择该处罚取消且已重新考核通过的资格');
+    sanctions.reinstatements ||= {};
+    for (const q of qualifications) sanctions.reinstatements[q] = { date, reason: text(reason, 500) };
+    validateSavedPenalty(item); await persist(); res.json(item);
+  } catch (error) { next(error); }
+});
+
 app.post('/api/adjustments', requireAdmin, async (req, res, next) => {
   try {
+    if (req.body?.type !== 'penalty') throw new Error('此入口仅登记处罚，比赛奖励请在赛程与选派中设置');
     const match = store.matches.find((item) => item.id === req.body?.matchId);
     if (!match) throw new Error('请选择有效的关联比赛');
     const referee = store.referees.find((item) => item.id === req.body?.refereeId);
@@ -569,6 +606,7 @@ app.post('/api/adjustments', requireAdmin, async (req, res, next) => {
 app.delete('/api/adjustments/:id', requireAdmin, async (req, res) => {
   const index = store.adjustments.findIndex((item) => item.id === req.params.id);
   if (index < 0) return res.status(404).json({ error: '未找到该奖惩记录' });
+  if (store.adjustments[index].penalty) return res.status(400).json({ error: '新处罚请使用撤销功能，以保留核算与纪律记录' });
   store.adjustments.splice(index, 1);
   await persist();
   res.status(204).end();

@@ -1,6 +1,7 @@
+import { penaltyEligibilityIssues } from './penalty-eligibility.ts';
 import { officialDuties, workloadIssues } from './workload.ts';
 import { analyzeAvoidance } from './avoidance.ts';
-import type { GroupOrder, Match, Referee, Role, Team, Unavailability } from './types.ts';
+import type { Adjustment, GroupOrder, Match, Referee, Role, Team, Unavailability } from './types.ts';
 
 export const additionalAssistantRoles: Role[] = ['additionalAssistant1', 'additionalAssistant2'];
 export const isAssistantRole = (role: Role) => ['assistant1', 'assistant2', ...additionalAssistantRoles].includes(role);
@@ -25,6 +26,7 @@ export interface AssignmentContext {
   referees?: Referee[];
   teams?: Team[];
   groupOrders?: GroupOrder[];
+  adjustments?: Adjustment[];
 }
 
 export function assignmentAnalysis(match: Match, matches: Match[], leave: Unavailability[] = [], context?: AssignmentContext): { issues: string[]; warnings: string[] } {
@@ -35,6 +37,7 @@ export function assignmentAnalysis(match: Match, matches: Match[], leave: Unavai
   const ids = assigned.map((o) => o.refereeId);
   if (new Set(ids).size !== ids.length) issues.add('同一场比赛不能重复选派同一名裁判员');
   for (const official of assigned) for (const duty of officialDuties(match, official)) {
+    penaltyEligibilityIssues(official.refereeId!, official.role, duty.date, context?.adjustments || []).forEach(issue => issues.add(`${official.name}：${issue}`));
     const interval = matchInterval(duty);
     if (interval && leave.some((item) => item.refereeId === official.refereeId && Date.parse(`${item.start}T00:00:00+08:00`) < interval[1] && Date.parse(`${item.end}T00:00:00+08:00`) + 86400000 > interval[0])) issues.add(`${official.name}在比赛时段已登记请假`);
     if (!interval) continue;
