@@ -48,8 +48,8 @@ describe('续赛换裁与赛事分项导出', () => {
     const rows = seasonExportRows(d).eleven;
     expect(cell(rows[1], '新生-主')).toBe(0.5); expect(cell(rows[2], '新生-主')).toBe(0.5);
     expect(rows[1].at(-1)).toBe(77); expect(rows[2].at(-1)).toBe(64);
-    const sheet = parseWorkbook(createSeasonWorkbook(d)).getWorksheet('十一人制');
-    expect(Number(sheet.getRow(2).getCell(29).value)).toBe(77); expect(Number(sheet.getRow(3).getCell(29).value)).toBe(64);
+    const sheet = parseWorkbook(createSeasonWorkbook(d)).getWorksheet('新生杯');
+    expect(Number(sheet.getRow(2).getCell(17).value)).toBe(77); expect(Number(sheet.getRow(3).getCell(17).value)).toBe(64);
   });
   it.each([[80, 60], [150, 100], [33.333, 12.5], [0, 200], [0, 0]])('允许非负任意比例、个人超过 100%% 和小数，保存和备份均保留：%s/%s', async (first, second) => {
     const f = apiFixture(); const input = match({ officials: [{ ...half('r1'), allocationPercent: first }, { ...half('r2'), allocationPercent: second }] });
@@ -112,8 +112,9 @@ describe('续赛换裁与赛事分项导出', () => {
     expect(cell(row, '新生-主')).toBe(0.5); expect(cell(row, '北大-主乙')).toBe(0); expect(cell(row, '北大-边甲淘')).toBe(0.5);
     expect(cell(row, '原级别')).toBe('E'); expect(cell(row, '现级别')).toBe('C');
     const wb = parseWorkbook(createSeasonWorkbook(d));
-    expect(Number(wb.getWorksheet('十一人制').getRow(2).getCell(elevenExportHeaders.indexOf('新生-主') + 1).value)).toBe(0.5);
-    expect(wb.getWorksheet('十一人制').columnCount).toBe(29);
+    expect(Number(wb.getWorksheet('新生杯').getRow(2).getCell(elevenExportHeaders.indexOf('新生-主') + 1).value)).toBe(0.5);
+    expect(wb.getWorksheet('新生杯').columnCount).toBe(17);
+    expect(wb.getWorksheet('男足北大杯').columnCount).toBe(23);
   });
 
   it('续赛两人各半场、积分和基础工资各半，实际补贴不折半也不重复自动发放', () => {
