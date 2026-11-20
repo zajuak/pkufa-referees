@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { CalendarCheck, CalendarDays, Download, SearchX } from 'lucide-react';
 import { useData } from '../hooks/useData';
 import { ChannelBadge, EmptyState, PageHeader, StatusBadge } from '../components/ui';
@@ -21,6 +21,8 @@ const assignmentRoles: Record<Channel, Role[]> = {
 
 export default function AssignmentsPage() {
   const { data } = useData();
+  const navigate = useNavigate();
+  const isAdmin = data!.access?.role === 'admin';
   const [params, setParams] = useSearchParams();
   const season = params.get('season') || data!.meta.season || CURRENT_SEASON;
   const query = params.get('q') || '';
@@ -91,8 +93,14 @@ export default function AssignmentsPage() {
           <tbody>{filtered.map((match) => {
             const status = effectiveMatchStatus(match);
             const avoidance = avoidanceSummaries.get(match.sourceMatchId || match.id)!;
-            return <tr className={status} key={match.id}>
-              <td data-label="日期"><div className="assignment-date"><strong>{formatDate(match.date)}</strong><small>第 {match.week} 周</small></div></td>
+            const sourceMatchId = match.sourceMatchId || match.id;
+            const editUrl = `/admin?${new URLSearchParams({ match: sourceMatchId })}`;
+            const date = <><strong>{formatDate(match.date)}</strong><small>第 {match.week} 周</small></>;
+            return <tr className={`${status}${isAdmin ? ' assignment-editable' : ''}`} key={match.id} data-match-id={sourceMatchId} onClick={isAdmin ? (event) => {
+              if ((event.target as Element).closest('a,button') || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+              navigate(editUrl);
+            } : undefined}>
+              <td data-label="日期">{isAdmin ? <Link className="assignment-date assignment-edit-link" to={editUrl} aria-label={`编辑选派：${match.date} ${match.time} ${match.home || match.group}—${match.away}`}>{date}</Link> : <div className="assignment-date">{date}</div>}</td>
               <td className="assignment-time" data-label="时间">{match.time || '时间待定'}</td>
               <td data-label="赛制 / 赛事"><div className="assignment-competition"><ChannelBadge channel={match.channel} /><span>{match.competition}</span></div></td>
               <td data-label="场地">{match.venue}</td>

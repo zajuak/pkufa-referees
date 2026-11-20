@@ -1,9 +1,10 @@
 import { formatPoints } from '../domain/calculations';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { BookOpen, CalendarPlus, CheckCircle2, Download, KeyRound, ListOrdered, LogOut, Plus, RotateCcw, Save, Settings2, ShieldCheck, Trash2, UserPlus, UsersRound, WalletCards } from 'lucide-react';
 import { api, useData } from '../hooks/useData';
 import { channelName, defaultWageStandards, effectiveMatchStatus, formatDate, getChannelSummary, getUpgradeRecommendation } from '../domain/calculations';
-import { eventName } from '../domain/competitions';
+import { competitionEvents, eventName, getMatchEvent } from '../domain/competitions';
 import type { Channel, CompetitionEvent, Level, Match, RuleBlock, RulesData, WageStandards } from '../domain/types';
 import { ChannelBadge, PageHeader, StatusBadge } from '../components/ui';
 import AdminMatchForm from '../components/AdminMatchForm';
@@ -75,18 +76,32 @@ function AdminWorkspace() {
 
 function MatchManager({ onPenalty }: { onPenalty: (match: Match) => void }) {
   const { data } = useData();
-  const [editing, setEditing] = useState<Match | null>(null);
-  const [formOpen, setFormOpen] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const matchId = params.get('match');
+  const editing = data!.matches.find(match => match.id === matchId) || null;
+  const [creating, setCreating] = useState(false);
+  const formOpen = creating || Boolean(editing);
+  const editorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!matchId && !creating) return;
+    const frame = requestAnimationFrame(() => editorRef.current?.scrollIntoView({ block: 'start' }));
+    return () => cancelAnimationFrame(frame);
+  }, [matchId, creating]);
   const [query, setQuery] = useState('');
-  const matches = data!.matches.filter((match) => `${match.competition}${match.home}${match.away}${match.date}${match.resumption?.date || ''}${match.officials.map((item) => item.name).join('')}`.includes(query.trim())).sort((a, b) => b.date.localeCompare(a.date));
-  const open = (match: Match | null) => { setEditing(match); setFormOpen(true); };
+  const requestedEvent = params.get('event');
+  const event = competitionEvents.some(item => item.id === requestedEvent) ? requestedEvent! : 'all';
+  const matches = data!.matches.filter(match => event === 'all' || getMatchEvent(match) === event).filter((match) => `${match.competition}${match.home}${match.away}${match.date}${match.resumption?.date || ''}${match.officials.map((item) => item.name).join('')}`.includes(query.trim())).sort((a, b) => b.date.localeCompare(a.date));
+  const open = (match: Match | null) => { const next = new URLSearchParams(params); if (match) next.set('match', match.id); else next.delete('match'); setCreating(!match); setParams(next); };
+  const close = () => { const next = new URLSearchParams(params); next.delete('match'); setCreating(false); setParams(next, { replace: true }); };
   return (
     <section className="admin-section">
       <div className="admin-section-heading"><div><h2>比赛管理</h2><p>新增赛程、调整岗位；比赛结束后自动完成并计入工资和积分。</p></div><div className="admin-heading-actions"><AssignmentUpload /><button className="button primary" onClick={() => open(null)}><Plus size={17} />新增赛程</button></div></div>
       <p className="upload-hint">组别可省略整列或留空，更新时保留已有组别；比赛阶段可填写在“比赛类别”列。五人制支持“一裁、二裁、三裁”或“第一裁判、第二裁判、第三裁判”三列，兼容旧“主裁／副裁”表。上传后先选择需要更新的周次并确认；“回避”列可导入本场名单，备注“接续比赛”需确认关联原场。</p>
-      {formOpen && <AdminMatchForm key={editing?.id || 'new'} match={editing} onClose={() => setFormOpen(false)} onPenalty={editing ? () => onPenalty(editing) : undefined} />}
-      <div className="admin-list-tools"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索赛事、球队或裁判员" aria-label="搜索比赛" /><span>{matches.length} 场</span></div>
+      {matchId && !editing && <p className="form-error" role="alert">未找到该比赛，可能已被删除。可从下方比赛列表重新选择。</p>}
+      {formOpen && <div ref={editorRef} className="match-editor-anchor"><AdminMatchForm key={editing?.id || 'new'} match={editing} onClose={close} onPenalty={editing ? () => onPenalty(editing) : undefined} /></div>}
+      <div className="admin-list-tools admin-match-tools"><label className="admin-match-event-filter">赛事<select aria-label="比赛管理赛事筛选" value={event} onChange={change => { const next = new URLSearchParams(params); if (change.target.value === 'all') next.delete('event'); else next.set('event', change.target.value); setParams(next, { replace: true }); }}><option value="all">全部赛事</option>{competitionEvents.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索赛事、球队或裁判员" aria-label="搜索比赛" /><span>{matches.length} 场</span></div>
       <div className="admin-match-list">{matches.map((match) => <button className="admin-match-row" key={match.id} onClick={() => open(match)}><span className="admin-match-date"><strong>{formatDate(match.date)}</strong><small>第 {match.week} 周 · {match.time}</small>{match.resumption && <small>接续：{match.resumption.date} {match.resumption.time}</small>}</span><span className="admin-match-title"><strong>{match.home || match.group}{match.home && match.away ? ' vs ' : ''}{match.away}</strong><small>{match.competition} · {channelName(match.channel)} · {match.venue}</small></span><span className="admin-match-officials">{match.status === 'cancelled' ? '无需选派' : `${match.officials.filter((item) => item.name).length}/${match.officials.length} 已选派`}</span><StatusBadge status={effectiveMatchStatus(match)} /><span className="edit-text">编辑</span></button>)}</div>
+      {!matches.length && <p className="inline-empty">没有符合筛选条件的比赛。</p>}
     </section>
   );
 }
