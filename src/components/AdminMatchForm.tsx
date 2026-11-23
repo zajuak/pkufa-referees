@@ -4,7 +4,7 @@ import { Save, Trash2, X } from 'lucide-react';
 import { api, useData } from '../hooks/useData';
 import { availableSeasons, CURRENT_SEASON, roleName } from '../domain/calculations';
 import { defaultCompetition, eventsForChannel, getMatchEvent } from '../domain/competitions';
-import { assignmentAnalysis, matchRoles, requiredRoles, usesAdditionalAssistants } from '../domain/scheduling';
+import { automaticAdditionalAssistants, assignmentAnalysis, matchRoles, requiredRoles, usesAdditionalAssistants } from '../domain/scheduling';
 import { applyAdvancement, matchAvoidanceSummary, resolveMatchTeams } from '../domain/avoidance';
 import { automaticTimeBonuses, matchBonuses, timeBonusKinds, timeBonusLabels } from '../domain/time-bonuses';
 import { allowedStages, stageOptions, stageLabel } from '../domain/stages';
@@ -24,18 +24,22 @@ function emptyMatch(): Match {
 function keepRoleOfficials(officials: Official[], roles: Role[]): Official[] {
   return roles.flatMap((role) => { const existing = officials.filter((o) => o.role === role); return existing.length ? existing : [{ role, refereeId: null, name: '' }]; });
 }
+function withAutomaticAdditional(match: Match): Match {
+  const enabled = usesAdditionalAssistants(match) || automaticAdditionalAssistants(match);
+  return { ...match, additionalAssistants: enabled, officials: match.status === 'cancelled' ? [] : keepRoleOfficials(match.officials, requiredRoles(match.channel, enabled)) };
+}
 
 export default function AdminMatchForm({ match, onClose, onPenalty }: { match: Match | null; onClose: () => void; onPenalty?: () => void }) {
   const { data, refresh } = useData();
   const [form, setForm] = useState<Match>(() => {
     if (!match) return emptyMatch();
     const event = getMatchEvent(match) || (match.channel === 'eleven' ? 'freshmen-cup' : 'womens-pku-cup');
-    return { ...emptyMatch(), ...match, ...interruptionSettings(match), event,
+    return withAutomaticAdditional({ ...emptyMatch(), ...match, ...interruptionSettings(match), event,
       homeColor: match.homeColor || teamColor(data!, event, match.home),
       awayColor: match.awayColor || teamColor(data!, event, match.away),
       additionalAssistants: usesAdditionalAssistants(match),
       officials: match.status === 'cancelled' ? [] : keepRoleOfficials(match.officials, matchRoles(match)),
-    };
+    });
   });
   const initialForm = useRef(JSON.stringify(form));
   const [saving, setSaving] = useState(false);
@@ -76,7 +80,7 @@ export default function AdminMatchForm({ match, onClose, onPenalty }: { match: M
     const event = channel === 'eleven' ? 'freshmen-cup' : 'womens-pku-cup';
     return { ...current, channel, event, interrupted: false, resumption: undefined, competition: defaultCompetition(event), stageDetail: undefined, stage: allowedStages(channel).includes(current.stage) ? current.stage : 'group', additionalAssistants: false, home: '', away: '', homeColor: '', awayColor: '', result: undefined, placementMode: undefined, homeSource: undefined, awaySource: undefined, officials: current.status === 'cancelled' ? [] : requiredRoles(channel).map((role) => ({ role, refereeId: null, name: '' })) };
   });
-  const changeEvent = (event: CompetitionEvent) => setForm((current) => ({ ...current, event, division: event === 'mens-pku-cup' ? current.division : null, competition: defaultCompetition(event), home: '', away: '', homeColor: '', awayColor: '', result: undefined, homeSource: undefined, awaySource: undefined }));
+  const changeEvent = (event: CompetitionEvent) => setForm((current) => withAutomaticAdditional({ ...current, event, division: event === 'mens-pku-cup' ? current.division : null, competition: defaultCompetition(event), home: '', away: '', homeColor: '', awayColor: '', result: undefined, homeSource: undefined, awaySource: undefined }));
   const changeStatus = (status: Match['status']) => setForm((current) => ({
     ...current,
     status,
@@ -84,12 +88,13 @@ export default function AdminMatchForm({ match, onClose, onPenalty }: { match: M
     ...(status === 'cancelled' ? { interrupted: false, resumption: undefined } : {}),
     officials: status === 'cancelled' ? [] : keepRoleOfficials(current.officials, matchRoles(current)),
   }));
-  const changeStage = (stage: Match['stage']) => setForm((current) => ({
+  const changeStage = (stage: Match['stage']) => setForm((current) => withAutomaticAdditional({
     ...current, stage, stageDetail: undefined,
     placementMode: current.channel === 'eleven' && stage === 'placement' ? current.placementMode || 'grouped' : undefined,
     homeSource: current.channel === 'eleven' && ['knockout', 'semifinal', 'final', 'third'].includes(stage) ? current.homeSource : undefined,
     awaySource: current.channel === 'eleven' && ['knockout', 'semifinal', 'final', 'third'].includes(stage) ? current.awaySource : undefined,
   }));
+  const changeStageDetail = (stageDetail: string) => setForm(current => withAutomaticAdditional({ ...current, stageDetail }));
   const sourceMatches = data!.matches.filter((item) => item.id !== form.id && item.event === form.event && (item.season || data!.meta.season) === form.season && item.status !== 'cancelled');
   const setSource = (side: 'home' | 'away', mode: 'direct' | 'winner' | 'loser' | 'group') => setForm((current) => {
     const key = `${side}Source` as const;
@@ -184,7 +189,7 @@ export default function AdminMatchForm({ match, onClose, onPenalty }: { match: M
         <label>组别<input value={form.group} onChange={(event) => update('group', event.target.value)} /></label>
         <label>比赛阶段<select value={form.stage} onChange={(event) => changeStage(event.target.value as Match['stage'])}>{!allowedStages(form.channel).includes(form.stage) && <option value={form.stage} disabled>旧阶段：{stageLabel(form.stage)}（请选择新阶段）</option>}{stageOptions(form.channel).map((stage) => <option key={stage.value} value={stage.value}>{stage.label}</option>)}</select></label>
       </div>
-      <label>阶段显示名称（可选）<input aria-label="阶段显示名称" maxLength={60} value={form.stageDetail || ''} onChange={event => update('stageDetail', event.target.value)} placeholder="例如 1/4决赛、十二进八；留空显示默认名称" /></label>
+      <label>阶段显示名称（可选）<input aria-label="阶段显示名称" maxLength={60} value={form.stageDetail || ''} onChange={event => changeStageDetail(event.target.value)} placeholder="例如 1/4决赛、十二进八、升降级附加赛" /></label>
       {form.channel === 'eleven' && form.stage === 'placement' && <label>排位赛模式<select aria-label="排位赛模式" value={form.placementMode || 'grouped'} onChange={(event) => update('placementMode', event.target.value as Match['placementMode'])}><option value="grouped">分组排位：回避同组全部球队</option><option value="single">单场排位：仅回避对阵双方</option></select></label>}
       {form.channel === 'eleven' && ['knockout', 'semifinal', 'final', 'third'].includes(form.stage) ? <fieldset className="advancement-fields"><legend>参赛球队与晋级来源</legend><p className="adjustment-help">直接选择球队，或从同赛事、同学期的比赛胜负者和小组名次自动晋级。未定球队会保留全部候选用于回避检查。</p>{(['home', 'away'] as const).map((side) => {
         const source = form[`${side}Source`];

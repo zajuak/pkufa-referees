@@ -260,3 +260,20 @@ describe('十一人制附加助理 Excel 识别',()=>{
     const legacy=row('11.14');legacy[3]='半决赛';upload(d,workbook([legacy]));expect(d.matches[0].officials.filter(o=>o.role==='additionalAssistant1')).toEqual(pair);
   });
 });
+
+describe('男足北大杯升降级附加赛',()=>{
+  it.each(['比赛类别','组别'])('%s 写升降级附加赛时，四岗位表自动生成两名附加助理',column=>{
+    const d=seed(),columns=[...header];columns[3]=column;const values=row('3.20');values[3]='升降级附加赛';const file=workbook([values],columns);
+    const preview=previewAssignmentWorkbook(d,file,season,'mens-pku-cup');expect(preview.rows[0]).toMatchObject({additionalAssistants:true,additionalOfficials:[{role:'additionalAssistant1',name:''},{role:'additionalAssistant2',name:''}]});
+    importAssignmentWorkbook(d,file,season,'mens-pku-cup');const m=d.matches[0];expect(m).toMatchObject({stageDetail:'升降级附加赛',additionalAssistants:true});expect(m.officials).toHaveLength(6);expect(matchStageLabel(m)).toContain('升降级附加赛');expect(()=>validateSnapshot(d)).not.toThrow();
+    // Adding the staffing rule must not silently change the chosen points/pay stage.
+    const baseline={...m,stageDetail:undefined};for(const o of m.officials.filter(o=>additionalAssistantRoles.includes(o.role)))expect(calculateOfficial(m,o,'C')).toEqual(calculateOfficial(baseline,{...o,role:'assistant1'},'C'));
+  });
+  it('六岗位表可导入升降级附加赛姓名；重传缺列保留附加选派',()=>{
+    const d=seed(),values=additionalRow('3.20','升降级附加赛','附加甲','附加乙');const file=workbook([values],additionalHeader);importAssignmentWorkbook(d,file,season,'mens-pku-cup');const id=d.matches[0].id;
+    expect(d.matches[0].officials.filter(o=>additionalAssistantRoles.includes(o.role)).map(o=>o.name)).toEqual(['附加甲','附加乙']);const legacy=row('3.20');legacy[3]='升降级附加赛';importAssignmentWorkbook(d,workbook([legacy]),season,'mens-pku-cup');expect(d.matches).toHaveLength(1);expect(d.matches[0].id).toBe(id);expect(d.matches[0].officials.filter(o=>additionalAssistantRoles.includes(o.role)).map(o=>o.name)).toEqual(['附加甲','附加乙']);
+  });
+  it('此补充规则限定男足北大杯，不对新生杯同名阶段自动增岗',()=>{
+    const d=seed(),values=row('3.20');values[3]='升降级附加赛';upload(d,workbook([values]));expect(d.matches[0].additionalAssistants).toBe(false);expect(d.matches[0].officials).toHaveLength(4);
+  });
+});

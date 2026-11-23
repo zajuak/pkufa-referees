@@ -1,5 +1,6 @@
 import type { Channel, Match, Stage } from './types.ts';
 const labels: Record<Stage, string> = { group: '小组赛', placement: '排位赛', knockout: '淘汰赛', semifinal: '半决赛', final: '决赛', third: '季军赛' };
+export const isPromotionPlayoffLabel = (value?: string) => /升降级附加赛/.test((value || '').normalize('NFKC').replace(/\s/g, ''));
 export const allowedStages = (channel: Channel): Stage[] => channel === 'five'
   ? ['group', 'placement', 'semifinal', 'final']
   : ['group', 'placement', 'knockout', 'semifinal', 'third', 'final'];
@@ -22,12 +23,12 @@ export function normalizeStageDetail(value: unknown, stage: Stage, channel: Chan
   if (typeof value !== 'string' || value.trim().length > 60) throw new Error('阶段显示名称须为不超过 60 字的文本');
   const detail = value.trim();
   if (!detail) return undefined;
-  if (stageFor(detail, channel) !== stage) throw new Error('阶段显示名称与所选比赛阶段不一致，请核对');
+  if (!(channel === 'eleven' && isPromotionPlayoffLabel(detail)) && stageFor(detail, channel) !== stage) throw new Error('阶段显示名称与所选比赛阶段不一致，请核对');
   return detail;
 }
 export function matchStageLabel(match: Pick<Match, 'channel' | 'group' | 'stage' | 'stageDetail'>): string {
   const label = match.stageDetail || stageLabel(match.stage, match.channel);
-  if (match.channel === 'five' || match.stage === 'placement') return [...new Set([match.group, label].filter(Boolean))].join(' · ');
+  if (match.channel === 'five' || match.stage === 'placement' || isPromotionPlayoffLabel(match.stageDetail)) return [...new Set([match.group, label].filter(Boolean))].join(' · ');
   if (match.stage === 'group') return match.group || label;
   return match.stageDetail || match.group || label;
 }

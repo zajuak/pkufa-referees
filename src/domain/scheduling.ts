@@ -1,13 +1,17 @@
 import { penaltyEligibilityIssues } from './penalty-eligibility.ts';
 import { officialDuties, workloadIssues } from './workload.ts';
 import { analyzeAvoidance } from './avoidance.ts';
+import { getMatchEvent } from './competitions.ts';
+import { isPromotionPlayoffLabel } from './stages.ts';
 import type { Adjustment, GroupOrder, Match, Referee, Role, Team, Unavailability } from './types.ts';
 
 export const additionalAssistantRoles: Role[] = ['additionalAssistant1', 'additionalAssistant2'];
 export const isAssistantRole = (role: Role) => ['assistant1', 'assistant2', ...additionalAssistantRoles].includes(role);
 export const usesAdditionalAssistants = (match: Pick<Match, 'channel' | 'additionalAssistants' | 'officials'>) => match.channel === 'eleven' && (match.additionalAssistants ?? match.officials.some((o) => additionalAssistantRoles.includes(o.role)));
+export const automaticAdditionalAssistants = (match: Pick<Match, 'channel' | 'stage' | 'event' | 'competition' | 'stageDetail' | 'group'>) => match.channel === 'eleven'
+  && (['semifinal', 'final'].includes(match.stage) || (getMatchEvent(match) === 'mens-pku-cup' && [match.stageDetail, match.group].some(isPromotionPlayoffLabel)));
 export const requiredRoles = (channel: Match['channel'], additional = false): Role[] => channel === 'eleven'
-  ? ['referee', 'assistant1', 'assistant2', ...(additional ? additionalAssistantRoles : []), 'fourth'] : ['first', 'second', 'third'];
+  ? ['referee', 'assistant1', 'assistant2', 'fourth', ...(additional ? additionalAssistantRoles : [])] : ['first', 'second', 'third'];
 export const matchRoles = (match: Pick<Match, 'channel' | 'additionalAssistants' | 'officials'>) => requiredRoles(match.channel, usesAdditionalAssistants(match));
 
 export function matchInterval(match: Pick<Match, 'date' | 'time'>): [number, number] | null {

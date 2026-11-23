@@ -1,8 +1,8 @@
 import { recalculateMatchBonuses } from '../src/domain/time-bonuses.ts';
 import { recalculateMatchWeeks } from '../src/domain/weeks.ts';
-import { additionalAssistantRoles, usesAdditionalAssistants } from '../src/domain/scheduling.ts';
+import { additionalAssistantRoles, automaticAdditionalAssistants, usesAdditionalAssistants } from '../src/domain/scheduling.ts';
 import { randomUUID } from 'node:crypto';
-import { stageFor, normalizeStageDetail } from '../src/domain/stages.ts';
+import { stageFor, normalizeStageDetail, isPromotionPlayoffLabel } from '../src/domain/stages.ts';
 import { parseWorkbook } from './xlsx.mjs';
 import { matchSemester, matchWeek } from '../src/domain/weeks.ts';
 import { normalizeColleges } from './validation.mjs';
@@ -128,7 +128,7 @@ function importedStage(parsed, existing, context) {
 }
 
 function importedAdditionalAssistants(parsed, existing, context) {
-  return parsed.channel === 'eleven' && (['semifinal', 'final'].includes(importedStage(parsed, existing, context))
+  return parsed.channel === 'eleven' && (automaticAdditionalAssistants({ ...parsed, stage: importedStage(parsed, existing, context), stageDetail: parsed.stageDetail ?? existing?.stageDetail, group: context.stageLabels.get(parsed) || parsed.group || existing?.group })
     || usesAdditionalAssistants(parsed) || Boolean(existing && usesAdditionalAssistants(existing)));
 }
 
@@ -139,7 +139,7 @@ function completeAdditionalRoles(match) {
 
 function rowSettings(match, sheet, rowNumber, columns, row, context) {
   const stageText = columns.stage ? cellText(row, columns.stage) : match.group;
-  if (stageText && (match.stage !== 'group' || /小组赛|常规赛/.test(stageText))) match.stageDetail = normalizeStageDetail(stageText, match.stage, match.channel);
+  if (stageText && (match.stage !== 'group' || /小组赛|常规赛/.test(stageText) || (match.channel === 'eleven' && isPromotionPlayoffLabel(stageText)))) match.stageDetail = normalizeStageDetail(stageText, match.stage, match.channel);
   const raw = columns.avoidance ? cellText(row, columns.avoidance) : '';
   const colleges = raw ? /^(无|无回避|无需回避|[-—–])$/.test(raw) ? [] : [...new Set(raw.normalize('NFKC').split(/[、,，;；\n\r/|]+/).map(v => v.trim()).filter(Boolean))] : undefined;
   if (colleges !== undefined) match.avoidanceOverride = { mode: 'replace', colleges };
@@ -185,7 +185,7 @@ function parseSheet(sheet, season, store, context, selectedEvent) {
       const stage = columns.stage ? cellText(row, columns.stage) : group;
       const event = eventFor('eleven', selectedEvent);
       const parsedStage = stageFor(stage || group);
-      const additionalAssistants = ['semifinal', 'final'].includes(parsedStage) || columns.roles.some(([role, column]) => additionalAssistantRoles.includes(role) && column && cellText(row, column));
+      const additionalAssistants = automaticAdditionalAssistants({ channel: 'eleven', stage: parsedStage, event, competition: eventCompetitions[event], stageDetail: stage || group, group }) || columns.roles.some(([role, column]) => additionalAssistantRoles.includes(role) && column && cellText(row, column));
       const importedMatch = {
         channel: 'eleven', event, competition: eventCompetitions[event] || sheet.name, date: normalizeDate(row.getCell(1).value, season), time: normalizeTime(row.getCell(2).value),
         venue: cellText(row, columns.venue), group, home: cellText(row, columns.home), away: cellText(row, columns.away),
