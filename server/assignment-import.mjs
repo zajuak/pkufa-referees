@@ -99,14 +99,42 @@ const fiveRoleHeaders = {
   second: ['二裁', '第二裁', '第二裁判', '2裁'],
   third: ['三裁', '第三裁', '第三裁判', '3裁'],
 };
+const elevenRoleHeaders = {
+  referee: ['主裁判', '主裁'], assistant1: ['第一助理', '助理1'], assistant2: ['第二助理', '助理2'], fourth: ['第四官员', '四官'],
+  additionalAssistant1: ['附加助理1', '第一附加助理', '第一附加助理裁判', '第一附加助理裁判员', '附加助理裁判1'],
+  additionalAssistant2: ['附加助理2', '第二附加助理', '第二附加助理裁判', '第二附加助理裁判员', '附加助理裁判2'],
+};
 
 function headerColumn(row, ...names) {
-  return row.values.slice(1).findIndex((value) => names.includes(text(value).replace(/\s/g, ''))) + 1;
+  return row.values.slice(1).findIndex((value) => names.includes(text(value).normalize('NFKC').replace(/\s/g, ''))) + 1;
 }
 
 function matchColumns(row) {
   const column = (...names) => headerColumn(row, ...names);
   return { group: column('组别'), stage: column('比赛类别', '比赛阶段', '阶段'), venue: column('场地'), home: column('主队'), away: column('客队'), avoidance: column('回避', '回避学院'), note: column('备注') };
+}
+
+function elevenColumns(row, sheetName, rowNumber) {
+  const labels = row.values.slice(1).map(value => text(value).normalize('NFKC').replace(/\s/g, ''));
+  const roles = Object.entries(elevenRoleHeaders).map(([role, names]) => {
+    if (labels.filter(label => names.includes(label)).length > 1) throw new Error(`${sheetName} 第 ${rowNumber} 行十一人制裁判岗位表头重复`);
+    return [role, headerColumn(row, ...names)];
+  });
+  return { ...matchColumns(row), roles };
+}
+
+function importedStage(parsed, existing, context) {
+  return existing && parsed.stage === 'group' && !/常规赛|小组赛/.test(context.stageLabels.get(parsed) || '') ? existing.stage : parsed.stage;
+}
+
+function importedAdditionalAssistants(parsed, existing, context) {
+  return parsed.channel === 'eleven' && (['semifinal', 'final'].includes(importedStage(parsed, existing, context))
+    || usesAdditionalAssistants(parsed) || Boolean(existing && usesAdditionalAssistants(existing)));
+}
+
+function completeAdditionalRoles(match) {
+  if (!match.additionalAssistants || match.status === 'cancelled') return;
+  for (const role of additionalAssistantRoles) if (!match.officials.some(o => o.role === role)) match.officials.push({ role, refereeId: null, name: '' });
 }
 
 function rowSettings(match, sheet, rowNumber, columns, row, context) {
@@ -140,7 +168,7 @@ function parseSheet(sheet, season, store, context, selectedEvent) {
     // Identify the three futsal roles before the shared date/time/venue/group prefix.
     if (modernFive) fiveHeaders.push({ row: rowNumber, columns: fiveColumns(row, true, sheet.name, rowNumber) });
     else if (headerColumn(row, '主队') && headerColumn(row, '客队') && headerColumn(row, '主裁判', '主裁')) elevenHeader = {
-      row: rowNumber, columns: { ...matchColumns(row), roles: [['referee', headerColumn(row, '主裁判', '主裁')], ['assistant1', headerColumn(row, '第一助理', '助理1')], ['assistant2', headerColumn(row, '第二助理', '助理2')], ['fourth', headerColumn(row, '第四官员', '四官')]] },
+      row: rowNumber, columns: elevenColumns(row, sheet.name, rowNumber),
     };
     else if (row.values.some((value) => text(value) === '主裁')) fiveHeaders.push({ row: rowNumber, columns: fiveColumns(row, false, sheet.name, rowNumber) });
   }
@@ -156,13 +184,16 @@ function parseSheet(sheet, season, store, context, selectedEvent) {
       const group = columns.group ? cellText(row, columns.group) : '';
       const stage = columns.stage ? cellText(row, columns.stage) : group;
       const event = eventFor('eleven', selectedEvent);
+      const parsedStage = stageFor(stage || group);
+      const additionalAssistants = ['semifinal', 'final'].includes(parsedStage) || columns.roles.some(([role, column]) => additionalAssistantRoles.includes(role) && column && cellText(row, column));
       const importedMatch = {
         channel: 'eleven', event, competition: eventCompetitions[event] || sheet.name, date: normalizeDate(row.getCell(1).value, season), time: normalizeTime(row.getCell(2).value),
         venue: cellText(row, columns.venue), group, home: cellText(row, columns.home), away: cellText(row, columns.away),
-        homeColor: row.getCell(columns.home).color, awayColor: row.getCell(columns.away).color, stage: stageFor(stage || group), division: null,
+        homeColor: row.getCell(columns.home).color, awayColor: row.getCell(columns.away).color, stage: parsedStage, division: null, additionalAssistants,
         status: cancelled ? 'cancelled' : 'scheduled', note, bonuses: bonusesFor(note),
-        officials: cancelled ? [] : columns.roles.map(([role, column]) => makeOfficial(store, role, column ? row.getCell(column).value : '', 'eleven', context)),
+        officials: cancelled ? [] : columns.roles.filter(([role]) => additionalAssistants || !additionalAssistantRoles.includes(role)).map(([role, column]) => makeOfficial(store, role, column ? row.getCell(column).value : '', 'eleven', context)),
       };
+      context.providedRoles.set(importedMatch, new Set(columns.roles.filter(([, column]) => column).map(([role]) => role)));
       context.stageLabels.set(importedMatch, stage || group);
       rowSettings(importedMatch, sheet, rowNumber, columns, row, context);
       matches.push(importedMatch);
@@ -315,6 +346,10 @@ function linkContinuation(store, original, parsed, season, decision, context) {
     if (used) throw new Error('已存在的独立续赛记录有选派、赛果、奖惩或晋级引用，请先在比赛设定中核对，不能自动合并');
     store.matches = store.matches.filter(m => m.id !== duplicate.id);
   }
+  if (parsed.channel === 'eleven') {
+    original.additionalAssistants = importedAdditionalAssistants(parsed, original, context);
+    completeAdditionalRoles(original);
+  }
   const changes = new Map(continuationRoles(original, parsed).map(r => [r.role, r]));
   for (const incoming of parsed.officials) {
     if (!incoming.name) continue; // Blank continuation cells retain the original assignment.
@@ -351,6 +386,13 @@ export function previewAssignmentWorkbook(store, buffer, season = '2026–27', s
   const dates = [...store.matches, ...imported.map((m, i) => ({ ...m, id: `preview-${i}`, season }))];
   const rows = imported.map(parsed => {
     const metadata = context.rows.get(parsed), resolution = plan.get(parsed), existing = resolution?.existing || (metadata.continuation ? existingFor(store, parsed, season) : undefined);
+    const additionalAssistants = parsed.status !== 'cancelled' && importedAdditionalAssistants(parsed, existing, context);
+    const additionalOfficials = additionalAssistants ? additionalAssistantRoles.map(role => {
+      const incoming = parsed.officials.find(o => o.role === role);
+      const previous = existing?.officials.filter(o => o.role === role) || [];
+      const retain = !context.providedRoles.get(parsed)?.has(role) || (!incoming?.name && (resolution?.action === 'reschedule' || metadata.continuation));
+      return { role, name: retain ? previous.map(o => o.name).filter(Boolean).join(' / ') || incoming?.name || '' : incoming?.name || '' };
+    }) : [];
     const candidates = metadata.continuation ? continuationCandidates(store, parsed, season, imported, context, plan).map(m => {
       const uploaded = imported.find(item => !context.rows.get(item).continuation && (signature(item) === signature(m) || plan.get(item)?.existing?.id === m.id));
       const projected = uploaded && { ...m, officials: uploaded.officials.flatMap(o => {
@@ -364,7 +406,7 @@ export function previewAssignmentWorkbook(store, buffer, season = '2026–27', s
       action: resolution?.action || (existing ? 'update' : 'add'), existingId: existing?.id,
       previousSchedule: existing ? { date: existing.date, time: existing.time } : undefined,
       matchCandidates: (resolution?.candidates || []).map(m => ({ id: m.id, date: m.date, time: m.time, home: m.home, away: m.away, group: m.group })),
-      colleges: parsed.avoidanceOverride?.colleges,
+      colleges: parsed.avoidanceOverride?.colleges, additionalAssistants, additionalOfficials,
       unknownColleges: (parsed.avoidanceOverride?.colleges || []).filter(c => !(store.colleges || []).some(v => v.normalize('NFKC').toLocaleLowerCase() === c.toLocaleLowerCase())), candidates };
   });
   const weeks = [...new Set(rows.map(r => r.weekKey))].sort().reverse().map(key => {
@@ -427,6 +469,7 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
         const officials = parsed.officials.flatMap((official) => {
           const previousGroup = existing.officials.filter((item) => item.role === official.role);
           const previous = previousGroup[0];
+          if (additionalAssistantRoles.includes(official.role) && !context.providedRoles.get(parsed)?.has(official.role) && previous) return previousGroup.map(item => ({ ...item }));
           if (plan.get(parsed).action === 'reschedule' && !official.name && previous) return previousGroup.map(item => ({ ...item }));
           if (previousGroup.some((item) => item.fraction === 0.5)) {
             if (parsed.channel === 'five' && !context.providedRoles.get(parsed)?.has(official.role)) return previousGroup.map((item) => ({ ...item }));
@@ -437,8 +480,9 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
           if (parsed.channel === 'five' && !context.providedRoles.get(parsed)?.has(official.role) && previous) return { ...previous };
           return { ...official, substitute: previous?.substitute || false };
         });
-        const additionalAssistants = usesAdditionalAssistants(existing);
+        const additionalAssistants = importedAdditionalAssistants(parsed, existing, context);
         if (additionalAssistants && parsed.status !== 'cancelled') for (const role of additionalAssistantRoles) {
+          if (officials.some(o => o.role === role)) continue;
           const previous = existing.officials.filter((o) => o.role === role);
           officials.push(...(previous.length ? previous : [{ role, refereeId: null, name: '' }]));
         }
@@ -455,7 +499,7 @@ export function importAssignmentWorkbook(store, buffer, season = '2026–27', se
           id: existing.id, season: existing.season || season, week: existing.week, officials, additionalAssistants,
           // Omitted groups and legacy stage labels must not erase configured advancement groups.
           group: !parsed.group || stageFor(parsed.group, parsed.channel) !== 'group' ? existing.group : parsed.group,
-          stage: parsed.stage === 'group' && !/常规赛|小组赛/.test(context.stageLabels.get(parsed) || '') ? existing.stage : parsed.stage,
+          stage: importedStage(parsed, existing, context),
           status,
         });
         if (status === 'cancelled') delete existing.result;

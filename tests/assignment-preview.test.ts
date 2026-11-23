@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { strToU8, zipSync } from 'fflate';
 import type { DataStore, Match } from '../src/domain/types';
-import { assignmentIssues } from '../src/domain/scheduling';
+import { additionalAssistantRoles, assignmentIssues, matchRoles } from '../src/domain/scheduling';
 import { assignmentOccurrences } from '../src/domain/workload';
 import { matchAvoidanceSummary } from '../src/domain/avoidance';
 import { matchStageLabel } from '../src/domain/stages';
@@ -17,12 +17,12 @@ import { validateSnapshot } from '../server/validation.mjs';
 const season = '2026–27';
 const header = ['日期', '时间', '场地', '比赛类别', '主队', '客队', '主裁判', '第一助理', '第二助理', '第四官员', '回避', '备注'];
 const row = (date: string, home = '甲队', away = '乙队', name = '', avoidance = '', note = '') => [date, '16-18', '北场', '十二进八', home, away, name, '', '', '', avoidance, note];
-function workbook(rows: string[][]) {
+function workbook(rows: string[][], columns = header) {
   const escape = (v: string) => v.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
   return zipSync({
     'xl/workbook.xml': strToU8('<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="赛程" sheetId="1" r:id="rId1"/></sheets></workbook>'),
     'xl/_rels/workbook.xml.rels': strToU8('<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
-    'xl/worksheets/sheet1.xml': strToU8(`<worksheet><sheetData>${[header, ...rows].map((r, i) => `<row r="${i + 1}">${r.map((v, c) => `<c r="${String.fromCharCode(65 + c)}${i + 1}" t="inlineStr"><is><t>${escape(v)}</t></is></c>`).join('')}</row>`).join('')}</sheetData></worksheet>`),
+    'xl/worksheets/sheet1.xml': strToU8(`<worksheet><sheetData>${[columns, ...rows].map((r, i) => `<row r="${i + 1}">${r.map((v, c) => `<c r="${String.fromCharCode(65 + c)}${i + 1}" t="inlineStr"><is><t>${escape(v)}</t></is></c>`).join('')}</row>`).join('')}</sheetData></worksheet>`),
   });
 }
 function seed(): DataStore {
@@ -200,5 +200,63 @@ describe('选派导入预览、按周确认及续赛合并', () => {
     const schedule = assignmentOccurrences(publicData.matches);
     expect(schedule.map(s => [s.date, s.week, s.officials[0].name])).toEqual([['2026-11-14', 1, '原裁判'], ['2026-11-21', 2, '续赛裁判']]);
     expect(schedule[1].sourceMatchId).toBe(m.id); expect(publicData.matches[0].officials[1].allocationPercent).toBe(60); expect(d).toEqual(before);
+  });
+});
+
+const additionalHeader = [...header.slice(0,10), '附加助理1', '附加助理2', ...header.slice(10)];
+function additionalRow(date: string, stage: string, first = '', second = '', note = '') {
+  const values=row(date,'甲队','乙队','','甲学院',note);values[3]=stage;values.splice(10,0,first,second);return values;
+}
+describe('十一人制附加助理 Excel 识别',()=>{
+  it.each(['半决赛','1/2决赛','二分之一决赛','决赛'])('旧四岗位表的 %s 自动补齐两个待选派附加岗位',stage=>{
+    const d=seed(),values=row('11.28');values[3]=stage;const file=workbook([values]);
+    const preview=previewAssignmentWorkbook(d,file,season);expect(preview.rows[0]).toMatchObject({additionalAssistants:true,additionalOfficials:[{role:'additionalAssistant1',name:''},{role:'additionalAssistant2',name:''}]});expect(d.matches).toHaveLength(0);
+    upload(d,file);expect(d.matches[0].additionalAssistants).toBe(true);expect(matchRoles(d.matches[0])).toHaveLength(6);expect(d.matches[0].officials.filter(o=>additionalAssistantRoles.includes(o.role))).toHaveLength(2);expect(d.referees).toHaveLength(0);expect(()=>validateSnapshot(d)).not.toThrow();
+  });
+  it.each(['1/4决赛','1/8决赛','季军赛','排位赛','小组赛'])('%s 即使共用六岗位表头，空白附加列也不会误启用',stage=>{
+    const d=seed();upload(d,workbook([additionalRow('11.28',stage)],additionalHeader));expect(d.matches[0].additionalAssistants).toBe(false);expect(d.matches[0].officials).toHaveLength(4);
+  });
+  it.each([['附加助理1','附加助理2'],['第一附加助理','第二附加助理'],['第一附加助理裁判员','第二附加助理裁判员'],['附加助理１','附加助理２']])('按表头读取 %s/%s，两人同普通助理计薪计分', (first,second)=>{
+    const d=seed(),columns=[...additionalHeader];columns[10]=first;columns[11]=second;
+    const file=workbook([additionalRow('11.28','半决赛','附加甲','附加乙')],columns);upload(d,file);
+    const m=d.matches[0];expect(m.officials.filter(o=>additionalAssistantRoles.includes(o.role)).map(o=>o.name)).toEqual(['附加甲','附加乙']);expect(d.referees).toHaveLength(2);
+    for(const o of m.officials.filter(o=>additionalAssistantRoles.includes(o.role)))expect(calculateOfficial(m,o,'C')).toEqual(calculateOfficial(m,{...o,role:'assistant1'},'C'));
+    expect(m.avoidanceOverride?.colleges).toEqual(['甲学院']);expect(()=>validateSnapshot(d)).not.toThrow();
+  });
+  it('用户表同周两场半决赛、两场排位赛分别识别，备注和回避不因新增两列错位',()=>{
+    const d=seed(),semi=additionalRow('11.28','半决赛'),rank=additionalRow('11.28','排位赛');rank[1]='16-18';rank[4]='丙队';
+    const semi2=additionalRow('11.29','半决赛','','','恶劣天气'),rank2=additionalRow('11.29','排位赛');semi2[4]='戊队';rank2[4]='己队';rank2[1]='18-20';
+    const file=workbook([semi,rank,rank2,semi2],additionalHeader),preview=previewAssignmentWorkbook(d,file,season);
+    expect(preview.rows.map((r:{additionalAssistants:boolean})=>r.additionalAssistants)).toEqual([true,false,false,true]);upload(d,file);expect(d.matches).toHaveLength(4);expect(d.matches.filter(m=>m.additionalAssistants)).toHaveLength(2);expect(d.matches[3]).toMatchObject({note:'恶劣天气',bonuses:['badWeather'],avoidanceOverride:{colleges:['甲学院']}});
+  });
+  it('补正已导入的半决赛时更新原比赛，不重复建场或重复附加岗位；旧表缺列保留网站选派',()=>{
+    const d=seed(),file=workbook([additionalRow('11.28','半决赛','附加甲','附加乙')],additionalHeader);upload(d,file);const id=d.matches[0].id;
+    d.matches[0].additionalAssistants=false;d.matches[0].officials=d.matches[0].officials.filter(o=>!additionalAssistantRoles.includes(o.role));
+    expect(upload(d,file)).toMatchObject({added:0,updated:1,newReferees:0});expect(d.matches[0].id).toBe(id);expect(d.matches[0].officials).toHaveLength(6);
+    const original=structuredClone(d.matches[0].officials.filter(o=>additionalAssistantRoles.includes(o.role))),legacy=row('11.28');legacy[3]='半决赛';upload(d,workbook([legacy]));
+    expect(d.matches).toHaveLength(1);expect(d.matches[0].officials.filter(o=>additionalAssistantRoles.includes(o.role))).toEqual(original);
+    upload(d,workbook([additionalRow('11.28','半决赛')],additionalHeader));expect(d.matches[0].officials.filter(o=>additionalAssistantRoles.includes(o.role)).map(o=>o.name)).toEqual(['','']);
+  });
+  it('阶段列空白保留网站半决赛时，也补齐缺失岗位；其他阶段明确填入附加裁判时同样启用',()=>{
+    const d=seed(),values=row('11.28');values[3]='半决赛';upload(d,workbook([values]));d.matches[0].additionalAssistants=false;d.matches[0].officials=d.matches[0].officials.slice(0,4);values[3]='';upload(d,workbook([values]));expect(d.matches[0].additionalAssistants).toBe(true);expect(d.matches[0].officials).toHaveLength(6);
+    const e=seed();upload(e,workbook([additionalRow('11.28','排位赛','附加甲')],additionalHeader));expect(e.matches[0].additionalAssistants).toBe(true);expect(e.matches[0].officials.filter(o=>additionalAssistantRoles.includes(o.role))).toHaveLength(2);
+  });
+  it('缺少一个附加表头时仍生成一对岗位，重复附加表头拒绝导入',()=>{
+    const columns=[...additionalHeader],values=additionalRow('11.28','半决赛','附加甲');columns.splice(11,1);values.splice(11,1);const d=seed();upload(d,workbook([values],columns));expect(d.matches[0].officials.filter(o=>additionalAssistantRoles.includes(o.role)).map(o=>o.name)).toEqual(['附加甲','']);
+    columns.splice(11,0,'第一附加助理');values.splice(11,0,'另一个人');expect(()=>upload(seed(),workbook([values],columns))).toThrow('岗位表头重复');
+  });
+  it('取消的决赛不创建裁判档案；只导入选定周次时不创建其他周附加裁判',()=>{
+    const d=seed();upload(d,workbook([additionalRow('11.28','决赛','取消甲','取消乙','比赛取消')],additionalHeader));expect(d.matches[0].officials).toEqual([]);expect(d.referees).toHaveLength(0);
+    const e=seed();upload(e,workbook([additionalRow('11.21','半决赛','旧周甲','旧周乙'),additionalRow('11.28','决赛','新周甲','新周乙')],additionalHeader),{weeks:['2026-11-26']});expect(e.matches).toHaveLength(1);expect(e.referees.map(r=>r.name)).toEqual(['新周甲','新周乙']);
+  });
+  it('附加裁判参与 API 重复选派检查，失败整批不落库；预览只读',async()=>{
+    const f=fixture(),values=additionalRow('11.28','半决赛','重复裁判','附加乙');values[6]='重复裁判';const file=workbook([values],additionalHeader);expect((await f.call('/preview',file)).status).toBe(200);expect(f.writes).toBe(0);const response=await f.call('',file,{revision:3,weeks:['2026-11-26']});expect(response.status).toBe(400);expect(f.writes).toBe(0);expect(f.data.matches).toHaveLength(0);expect(f.data.referees).toHaveLength(0);
+  });
+  it('附加岗位续赛换裁沿用同场记录，并保留已确认的半场比例和补贴',()=>{
+    const d=seed();upload(d,workbook([additionalRow('11.14','半决赛','原附加甲','附加乙')],additionalHeader));const id=d.matches[0].id;
+    const file=workbook([additionalRow('11.21','半决赛','续附加甲','附加乙','接续比赛')],additionalHeader),preview=previewAssignmentWorkbook(d,file,season);
+    expect(preview.rows[0].candidates[0].roles[0].role).toBe('additionalAssistant1');
+    upload(d,file,{continuations:{'赛程:2':{matchId:id,roles:{additionalAssistant1:{originalPercent:80,resumedPercent:60,originalBonus:5,resumedBonus:10}}}}});expect(d.matches).toHaveLength(1);expect(d.matches[0].additionalAssistants).toBe(true);const pair=d.matches[0].officials.filter(o=>o.role==='additionalAssistant1');expect(pair.map(o=>o.allocationPercent)).toEqual([80,60]);expect(pair.map(o=>o.actualBonus)).toEqual([5,10]);expect(()=>validateSnapshot(d)).not.toThrow();
+    const legacy=row('11.14');legacy[3]='半决赛';upload(d,workbook([legacy]));expect(d.matches[0].officials.filter(o=>o.role==='additionalAssistant1')).toEqual(pair);
   });
 });
