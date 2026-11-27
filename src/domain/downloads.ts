@@ -1,15 +1,36 @@
-import type { Match } from './types';
-import { roleName } from './calculations';
-import { matchInterval } from './scheduling';
+import type { Match, Role } from './types';
+import { channelName, roleName } from './calculations';
+import { additionalAssistantRoles, matchInterval, usesAdditionalAssistants } from './scheduling';
 
 export function downloadBlob(name: string, content: string, type = 'application/json') {
   const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a'); link.href = url; link.download = name; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-const csv = (value: string) => `"${(/^[=+\-@\t\r]/.test(value) ? "'" : '') + value.replaceAll('"', '""')}"`;
+const csv = (value: string) => `"${(value !== '-' && /^[=+\-@\t\r]/.test(value) ? "'" : '') + value.replaceAll('"', '""')}"`;
+export function assignmentExportRows(matches: Match[]): string[][] {
+  const fiveOnly = matches.length > 0 && matches.every(match => match.channel === 'five');
+  const mixed = matches.some(match => match.channel === 'five') && matches.some(match => match.channel === 'eleven');
+  const showAdditional = matches.some(match => match.status !== 'cancelled' && usesAdditionalAssistants(match));
+  const labels = fiveOnly ? ['第一裁判', '第二裁判', '第三裁判'] : mixed
+    ? ['主裁判 / 第一裁判', '第一助理 / 第二裁判', '第二助理 / 第三裁判', '第四官员']
+    : ['主裁判', '第一助理', '第二助理', '第四官员'];
+  if (showAdditional) labels.push('第一附加助理', '第二附加助理');
+  return [
+    ['日期', '时间', '赛制', '赛事', '场地', '主队', '客队', ...labels, '状态', '备注'],
+    ...matches.map(match => {
+      const roles: (Role | undefined)[] = match.channel === 'eleven' ? ['referee', 'assistant1', 'assistant2', 'fourth']
+        : ['first', 'second', 'third', ...(fiveOnly ? [] : [undefined])];
+      if (showAdditional) roles.push(...(usesAdditionalAssistants(match) ? additionalAssistantRoles : [undefined, undefined]));
+      const assignments = roles.map(role => match.status === 'cancelled' ? '' : !role ? '-'
+        : match.officials.filter(official => official.role === role && official.name).map(official => official.name).join(' / '));
+      return [match.date, match.time, channelName(match.channel), match.competition, match.venue, match.home, match.away, ...assignments,
+        match.status === 'cancelled' ? '已取消' : match.status === 'completed' ? '已完成' : '已安排', match.note];
+    }),
+  ];
+}
 export function exportAssignments(matches: Match[]) {
-  const rows = [['日期', '时间', '赛事', '场地', '主队', '客队', '选派', '状态', '备注'], ...matches.map((m) => [m.date, m.time, m.competition, m.venue, m.home, m.away, m.officials.map((o) => `${roleName(o.role)}：${o.name || '待选派'}`).join('；'), m.status === 'cancelled' ? '已取消' : m.status === 'completed' ? '已完成' : '已安排', m.note])];
+  const rows = assignmentExportRows(matches);
   downloadBlob('裁判选派.csv', '\uFEFF' + rows.map((row) => row.map(csv).join(',')).join('\r\n'), 'text/csv;charset=utf-8');
 }
 const escapeIcs = (s: string) => s.replaceAll('\\', '\\\\').replaceAll('\n', '\\n').replaceAll(';', '\\;').replaceAll(',', '\\,');
